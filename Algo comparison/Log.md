@@ -42,3 +42,7 @@ Ative nos arquivos TSP5, TSP10 e TSP20 no algoritmo "Google-OR Tools" a opção 
 1.3 Claude Opus 4.7 (Max effort)
 
 Reescreva em Colab.py todo o código necessário para eu rodar o TSP50 no Google Colab, isso é, inclua os "pip install" necessários, download do LKH e qualquer outro quesito necessário sem alterar a lógica
+
+1.4 Claude Opus 4.7 (Max effort)
+
+Estou fazendo um programa que roda diversas instâncias de TSP, preciso que você compile todos os arquivos de TSP em um só, ele deve realizar o TSP5, TSP10 e TSP20 com 20 seeds e o TSP50 e TSP100 com 5 seeds. O programa deve devolver o arquivo .xlsx chamado "Comparação TSPs", da mesma forma que já é feito nos outros arquivos, porem adicione a qual instância tal linha pertence, isso é, se o custo é do TSP5, 10, 20, 50 ou 100.
