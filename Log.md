@@ -29,3 +29,12 @@ O numero de paradas no TSP5 é de 5 paradas
 """
 
 Altere para que o excel seja instalado diretamente no computador do usuário, sem ficar no repositório. O nome do arquivo deve ser: "Comparação TSP5"
+
+1.2 Claude Opus 4.7 (Max effort)
+
+Ative nos arquivos TSP5, TSP10 e TSP20 no algoritmo "Google-OR Tools" a opção de uma metaheurística de melhoria no resultado. Permitindo que a primeira solução seja exposta a um processo de melhoria. Não restrinja um tempo_limite.
+
+"""
+[Quer que eu adicione um solution_limit para garantir a terminação sem impor restrição de tempo?
+ 
+ Sim, adicione]
