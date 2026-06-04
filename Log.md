@@ -38,3 +38,7 @@ Ative nos arquivos TSP5, TSP10 e TSP20 no algoritmo "Google-OR Tools" a opção 
 [Quer que eu adicione um solution_limit para garantir a terminação sem impor restrição de tempo?
  
  Sim, adicione]
+
+1.3 Claude Opus 4.7 (Max effort)
+
+Reescreva em Colab.py todo o código necessário para eu rodar o TSP50 no Google Colab, isso é, inclua os "pip install" necessários, download do LKH e qualquer outro quesito necessário sem alterar a lógica
