@@ -9,7 +9,7 @@ from ortools.constraint_solver import routing_enums_pb2
 from ortools.constraint_solver import pywrapcp
 
 # Benchmark Configuration
-NUM_SEEDS = 20
+NUM_SEEDS = 5
 NUM_NODES = 50
 
 def generate_distance_matrix(num_nodes, seed):
@@ -452,7 +452,7 @@ def main():
             desktop_path = option
             break
             
-    output_filename = os.path.join(desktop_path, "Comparação TSP20.xlsx")
+    output_filename = os.path.join(desktop_path, "Comparação TSP50.xlsx")
     df.to_excel(output_filename, index=False)
 
 if __name__ == "__main__":
