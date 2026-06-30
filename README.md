@@ -21,10 +21,10 @@ Welcome to the **Routrip** project! This project uses heuristic and machine lear
 
 To get started with the project, follow these steps:
 
-1. Clone the repository: `git clone https://github.com/your-username/routrip`
+1. Clone the repository: `git clone https://github.com/marlonfs/routrip`
 2. Install the required dependencies: `pip install -r requirements.txt`
 3. Download the sample dataset provided. 
-4. Run the script in the notebook `.ipynb` to view the final results.
+4. Run the script in the file `TSPs.py` to run and download the final results.
 5. Alternatively, to understand the development process run the scripts in notebooks following the sequence:
    
   
