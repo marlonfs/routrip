@@ -24,7 +24,7 @@ To get started with the project, follow these steps:
 1. Clone the repository: `git clone https://github.com/marlonfs/routrip`
 2. Install the required dependencies: `pip install -r requirements.txt`
 3. Download the sample dataset provided. 
-4. Run the script in the file `TSPs.py` to run and download the final results.
+4. Run the script in the file `TSPs.py` or `NewTSPs.py` to run and download the final results.
    
   
 ## Contributing
