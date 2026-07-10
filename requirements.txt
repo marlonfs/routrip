@@ -5,3 +5,9 @@ pyvrp>=0.11
 alns>=6.0
 hygese>=0.0.0.8
 openpyxl
+
+# Solver GNN ("GNN Model", baseado em https://github.com/walidgeuttala/atsp)
+torch>=2.2
+torch-geometric>=2.5
+networkx>=2.6
+scikit-learn>=1.3

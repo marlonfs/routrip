@@ -72,3 +72,7 @@ Se atente ao fato de que as bibliotecas PyVRP e PyHygese não rodam o problema T
 
 Crie esse arquivo em uma nova pasta chamada "New-Algo Comparison"
 Lembre-se de utilizar o LKH já presente no repositório, não precisa utilizar nenhuma nova biblioteca, poder ser o compile lkh ou o lkh.exe, será rodado em Windows
+
+2.1 Claude Fable 5 (xHigh effort)
+
+Claude, preciso adicionar a comparação mais recente - New-Algo Comparison um modelo de resolução feito por GNN, o modelo base que quero que você utilize é o disponível em https://github.com/walidgeuttala/atsp.git. Para colocá-lo, será necessário treinar o modelo, por isso, durante a implementação do modelo, quando você precisar realizar esse treino, coloque os arquivos em uma pasta separada com o nome de "GNN Model"
