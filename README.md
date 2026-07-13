@@ -33,4 +33,4 @@ We welcome contributions from the community to enhance the project. If you would
 
 ## License
 
-This project is licensed under the [CC BY-NC 4.0](LICENSE.md)
+This project is licensed under the [Apache License 2.0](LICENSE.md)

@@ -1,0 +1,10 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Configuração local do Claude Code
+.claude/
+
+# GNN Model — artefatos regeneráveis (seeds determinísticas, ver Comparison/GNN Model/README.md)
+Comparison/GNN Model/data/
+Comparison/GNN Model/logs/
