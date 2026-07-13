@@ -8,3 +8,7 @@ __pycache__/
 # GNN Model — artefatos regeneráveis (seeds determinísticas, ver GNN Model/README.md)
 GNN Model/data/
 GNN Model/logs/
+
+# ATSP GNN Model — artefatos regeneráveis
+ATSP GNN Model/data/
+ATSP GNN Model/logs/
