@@ -1,0 +1,14 @@
+{
+  "num_features": 1,
+  "num_classes": 1,
+  "hidden_dim": 64,
+  "num_layers": 3,
+  "dropout": 0.0,
+  "conv_type": "dir-gat",
+  "jk": "cat",
+  "normalize": false,
+  "alpha": 0.5,
+  "learn_alpha": false,
+  "target": "regret",
+  "instance_size": 100
+}

@@ -2,7 +2,7 @@
 Comparativo de algoritmos para o TSP — New-Algo Comparison
 ==========================================================
 
-Compara quatro algoritmos sobre o Traveling Salesman Problem (sai do nó 0,
+Compara cinco algoritmos sobre o Traveling Salesman Problem (sai do nó 0,
 visita todas as paradas uma única vez e volta ao 0, minimizando o custo total):
 
     * LKH3  -> BASELINE. Usa o LKH.exe JÁ presente em "Algo comparison"
@@ -13,6 +13,10 @@ visita todas as paradas uma única vez e volta ao 0, minimizando o custo total):
     * ALNS  -> Adaptive Large Neighbourhood Search, via biblioteca N-Wouda/ALNS,
                com operadores de remoção/inserção implementados para o TSP.
     * HGS   -> Hybrid Genetic Search, via PyHygese (hygese).
+    * GNN   -> Graph Neural Network baseada em https://github.com/walidgeuttala/atsp:
+               o modelo prediz o "regret" de cada aresta e guia um Nearest-Neighbor
+               + Guided Local Search. Código, dados de treino e checkpoints ficam
+               na pasta "GNN Model" (raiz do repositório).
 
 PyVRP e PyHygese resolvem VRP, não TSP. A adaptação usada aqui modela o TSP como
 um VRP de UM único veículo, sem restrição de capacidade útil (ver comentários
@@ -66,6 +70,10 @@ INSTANCES = [
 ILS_ITERS = {5: 2000, 10: 2000, 20: 5000, 50: 10000, 100: 20000}   # iterações do ILS (PyVRP)
 ALNS_ITERS = {5: 2000, 10: 2000, 20: 5000, 50: 10000, 100: 20000}  # iterações do ALNS
 HGS_NB_ITER = {5: 2000, 10: 2000, 20: 5000, 50: 10000, 100: 20000}  # iters SEM melhora do HGS
+
+# O GNN usa Guided Local Search com orçamento de TEMPO (como no repositório
+# original) — limite (s) por instância, escalando com o tamanho n.
+GNN_TIME_LIMITS = {5: 0.5, 10: 1.0, 20: 2.0, 50: 5.0, 100: 10.0}
 
 # Nome do arquivo de saída (salvo na pasta deste script).
 OUTPUT_FILENAME = "Comparação New-Algo TSPs.xlsx"
@@ -356,6 +364,28 @@ def solve_alns(distance_matrix, seed, max_iters):
 
 
 # =========================================================================
+# 5. GNN — modelo de walidgeuttala/atsp, treinado na pasta "GNN Model"
+# =========================================================================
+def solve_gnn_model(distance_matrix, seed, time_limit):
+    """Resolve o TSP com o solver GNN (regret previsto + Guided Local Search).
+
+    O modelo prediz o regret de cada aresta; um Nearest-Neighbor guiado pelo
+    regret gera o tour inicial, melhorado por Guided Local Search até o limite
+    de tempo. Requer os checkpoints treinados em "GNN Model/checkpoints/"
+    (ver "GNN Model/README.md" para gerar dados e treinar).
+    """
+    import sys
+
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    gnn_dir = os.path.join(os.path.dirname(script_dir), "GNN Model")
+    if gnn_dir not in sys.path:
+        sys.path.insert(0, gnn_dir)
+    from gnn_solver import solve_gnn
+
+    return solve_gnn(distance_matrix, seed, time_limit=time_limit)
+
+
+# =========================================================================
 # Loop principal
 # =========================================================================
 # (nome, função(D, seed, n) -> tour). Ordem das colunas no relatório.
@@ -364,6 +394,7 @@ SOLVERS = [
     ("ILS",  lambda D, seed, n: solve_ils_pyvrp(D, seed, ILS_ITERS[n])),
     ("ALNS", lambda D, seed, n: solve_alns(D, seed, ALNS_ITERS[n])),
     ("HGS",  lambda D, seed, n: solve_hgs(D, seed, HGS_NB_ITER[n])),
+    ("GNN",  lambda D, seed, n: solve_gnn_model(D, seed, GNN_TIME_LIMITS[n])),
 ]
 
 
