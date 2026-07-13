@@ -76,3 +76,7 @@ Lembre-se de utilizar o LKH já presente no repositório, não precisa utilizar 
 2.1 Claude Fable 5 (xHigh effort)
 
 Claude, preciso adicionar a comparação mais recente - New-Algo Comparison um modelo de resolução feito por GNN, o modelo base que quero que você utilize é o disponível em https://github.com/walidgeuttala/atsp.git. Para colocá-lo, será necessário treinar o modelo, por isso, durante a implementação do modelo, quando você precisar realizar esse treino, coloque os arquivos em uma pasta separada com o nome de "GNN Model"
+
+2.2 Claude Fable 5 (xHigh)
+
+Claude, Vou refazer a estrutura do algoritmo de GNN, quero que você reutilize a atual estrutura e faça novos arquivos em uma pasta ATSP GNN Model, ajustando os dados e modelo para tratar de grafo unidirecionais, assim, treinando o modelo para instâncias a partir de matrizes assimétricas. Além disso, quero que você, dentro de uma nova pasta chamada "New ATSP Algo Comparison" copie a estrutura de New TSPs e crie um novo script de comparação dos mesmos algoritmos, porém, dessa vez, comparado durantes instâncias assimétrica.

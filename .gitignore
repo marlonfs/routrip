@@ -5,6 +5,6 @@ __pycache__/
 # Configuração local do Claude Code
 .claude/
 
-# GNN Model — artefatos regeneráveis (seeds determinísticas, ver GNN Model/README.md)
-GNN Model/data/
-GNN Model/logs/
+# GNN Model — artefatos regeneráveis (seeds determinísticas, ver Comparison/GNN Model/README.md)
+Comparison/GNN Model/data/
+Comparison/GNN Model/logs/
