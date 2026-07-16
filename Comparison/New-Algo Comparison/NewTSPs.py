@@ -5,7 +5,7 @@ Comparativo de algoritmos para o TSP — New-Algo Comparison
 Compara cinco algoritmos sobre o Traveling Salesman Problem (sai do nó 0,
 visita todas as paradas uma única vez e volta ao 0, minimizando o custo total):
 
-    * LKH3  -> BASELINE. Usa o LKH.exe JÁ presente em "Algo comparison"
+    * LKH3  -> BASELINE. Usa o LKH.exe presente na pasta deste script
                (subprocess, TSPLIB). Nenhuma biblioteca nova.
     * ILS   -> Iterated Local Search, via PyVRP. O solve() do PyVRP executa
                internamente a classe IteratedLocalSearch (é o solver padrão),
@@ -28,7 +28,8 @@ Metodologia
   EUC_2D) é gerada por (n, seed) e usada EXATAMENTE IGUAL pelos quatro algoritmos.
 * Critério de parada das metaheurísticas = ITERAÇÕES FIXAS (ver dicts abaixo).
   O tempo medido é o tempo real de execução; o custo mede a qualidade atingida.
-  O LKH3 baseline roda sempre com RUNS = 1 (execução única natural).
+  O LKH3 baseline roda sempre com RUNS = 2 (duas execuções independentes,
+  reportando o melhor tour encontrado).
 * Custo reportado = compute_tour_cost(tour, D) com a MESMA matriz inteira para
   todos, eliminando divergências de arredondamento interno das bibliotecas.
 * Instâncias: 5, 10, 20, 50 e 100 paradas, cada uma com 20 seeds. Para cada
@@ -42,7 +43,7 @@ Um arquivo .xlsx na própria pasta do script, com DUAS planilhas (sheets):
 
 Requisitos: Python >= 3.11. Instale as dependências com:
     pip install -r requirements.txt
-(O LKH3 não usa biblioteca; reutiliza o LKH.exe de "Algo comparison".)
+(O LKH3 não usa biblioteca; usa o LKH.exe da pasta deste script.)
 """
 
 import os
@@ -145,29 +146,27 @@ def validate_tour(tour, n):
 def _find_lkh_binary():
     """Localiza o binário do LKH. Prioridade:
        1) variável de ambiente LKH_BINARY (útil p/ verificação local no macOS/Linux);
-       2) 'Algo comparison/LKH.exe' (Windows, alvo do usuário);
-       3) 'Algo comparison/LKH'     (binário compilado em Unix).
+       2) 'LKH.exe' na pasta deste script (Windows, alvo do usuário);
+       3) 'LKH'     na pasta deste script (binário compilado em Unix).
     """
     env = os.environ.get("LKH_BINARY")
     if env and os.path.exists(env):
         return env
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    repo_root = os.path.dirname(script_dir)
-    algo_dir = os.path.join(repo_root, "Algo comparison")
     for name in ("LKH.exe", "LKH"):
-        candidate = os.path.join(algo_dir, name)
+        candidate = os.path.join(script_dir, name)
         if os.path.exists(candidate):
             return candidate
 
     raise FileNotFoundError(
-        "Binário do LKH não encontrado. Esperado 'Algo comparison/LKH.exe' "
-        "(ou 'LKH'), ou defina a variável de ambiente LKH_BINARY."
+        "Binário do LKH não encontrado. Esperado 'LKH.exe' (ou 'LKH') na pasta "
+        "deste script, ou defina a variável de ambiente LKH_BINARY."
     )
 
 
 def solve_lkh3(distance_matrix, seed):
-    """Resolve o TSP com o LKH3 (RUNS = 1) via arquivos TSPLIB e subprocess.
+    """Resolve o TSP com o LKH3 (RUNS = 2) via arquivos TSPLIB e subprocess.
 
     Retorna o tour (0-indexado, começando no nó 0).
     """
@@ -192,12 +191,12 @@ def solve_lkh3(distance_matrix, seed):
                 f.write(" ".join(map(str, (int(v) for v in row))) + "\n")
             f.write("EOF\n")
 
-        # B. Parâmetros (SEED para reprodutibilidade; RUNS = 1)
+        # B. Parâmetros (SEED para reprodutibilidade; RUNS = 2)
         with open(par_file, "w") as f:
             f.write(f"PROBLEM_FILE = {tsp_file}\n")
             f.write(f"OUTPUT_TOUR_FILE = {tour_file}\n")
             f.write(f"SEED = {seed}\n")
-            f.write("RUNS = 1\n")
+            f.write("RUNS = 2\n")
 
         # C. Executa o LKH
         subprocess.run(

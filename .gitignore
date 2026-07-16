@@ -8,3 +8,6 @@ __pycache__/
 # GNN Model — artefatos regeneráveis (seeds determinísticas, ver Comparison/GNN Model/README.md)
 Comparison/GNN Model/data/
 Comparison/GNN Model/logs/
+
+# Excel
+*.xlsx
