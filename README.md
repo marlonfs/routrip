@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🚚 RouTrip
+# RouTrip Project
 
 ### An Integrated Approach to the Asymmetric Traveling Salesman Problem
 
