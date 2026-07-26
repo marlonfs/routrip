@@ -11,3 +11,14 @@ Comparison/GNN Model/logs/
 
 # Excel
 *.xlsx
+
+# Ambientes virtuais e dependências
+.venv/
+venv/
+node_modules/
+
+# App — artefatos de build
+App/backend/static/
+App/backend/build/
+App/backend/dist/
+App/backend/vendor/tesseract/
