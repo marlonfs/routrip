@@ -109,3 +109,11 @@ Além disso, eu preciso também que você reestruture a questão visual. A parte
 ###
 
 Preciso que você retire, da caixa de endereços, o botão "partida no mapa". Além disso, em configurações, a gente consegue selecionar tempo de viagem ou então distância. Eu quero que ao invés de ser uma caixa de selecionar, sejam dois botões, em que a gente consiga ver qual tá selecionado. Além disso, junto do adicionar imagens, vamos mudar para, adicionar imagens ou arquivos. Porque eu também quero que o programa consiga ler se o usuário mandar um arquivo em Excel, ou então CSV, com vários endereços. Então adicione essa funcionalidade de ler csv/.xlsx
+
+###
+Apenas por curiosidade, até aqui o trecho 3.0 gastou algo próximo de U$ 31,00
+###
+
+3.1 Claude Opus 5 (xHigh)
+
+Coloque a logo que está na pasta de APP no .exe do aplicativo

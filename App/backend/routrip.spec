@@ -44,6 +44,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
+    icon="assets/icon.ico",
 )
 
 coll = COLLECT(
