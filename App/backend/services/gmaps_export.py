@@ -1,6 +1,6 @@
 from urllib.parse import quote, urlencode
 
-GMAPS_MAX_WAYPOINTS = 9
+GMAPS_MAX_WAYPOINTS = 50
 
 
 def _fmt(point: tuple[float, float]) -> str:
@@ -9,7 +9,7 @@ def _fmt(point: tuple[float, float]) -> str:
 
 def build_gmaps_urls(cycle: list[tuple[float, float]]) -> list[str]:
     """Gera URLs do Google Maps para o ciclo completo [(lat, lon), ...] com
-    origem repetida no final. Divide em trechos encadeados de até 9 waypoints."""
+    origem repetida no final. Divide em trechos encadeados de até 50 waypoints."""
     urls = []
     i = 0
     max_span = GMAPS_MAX_WAYPOINTS + 1
