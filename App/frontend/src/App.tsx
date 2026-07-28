@@ -5,6 +5,7 @@ import CalculateButton from "./components/left/CalculateButton";
 import ImageUpload from "./components/left/ImageUpload";
 import OcrReviewModal from "./components/left/OcrReviewModal";
 import SettingsPanel from "./components/left/SettingsPanel";
+import SpreadsheetModal from "./components/left/SpreadsheetModal";
 import MapView from "./components/center/MapView";
 import ItineraryPanel from "./components/right/ItineraryPanel";
 import { useAppStore } from "./store/useAppStore";
@@ -12,6 +13,7 @@ import { useAppStore } from "./store/useAppStore";
 export default function App() {
   const loadConfig = useAppStore((s) => s.loadConfig);
   const reviewOpen = useAppStore((s) => s.reviewOpen);
+  const spreadsheet = useAppStore((s) => s.spreadsheet);
   const error = useAppStore((s) => s.error);
   const setError = useAppStore((s) => s.setError);
 
@@ -46,6 +48,7 @@ export default function App() {
         <div className="panel-title">Itinerário</div>
         <ItineraryPanel />
       </aside>
+      {spreadsheet && <SpreadsheetModal preview={spreadsheet} />}
       {reviewOpen && <OcrReviewModal />}
     </div>
   );

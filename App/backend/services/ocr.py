@@ -32,7 +32,7 @@ def _configure(exe: str) -> None:
         os.environ["TESSDATA_PREFIX"] = str(tessdata)
 
 
-def extract_text(image_bytes: bytes, lang: str = "por") -> str:
+def extract_text_from_image(img: Image.Image, lang: str = "por") -> str:
     exe = find_tesseract()
     if not exe:
         raise RuntimeError(
@@ -40,7 +40,6 @@ def extract_text(image_bytes: bytes, lang: str = "por") -> str:
             "Reinstale o Routrip."
         )
     _configure(exe)
-    img = Image.open(BytesIO(image_bytes))
     img = ImageOps.exif_transpose(img)
     img = ImageOps.grayscale(img)
     img = ImageOps.autocontrast(img)
@@ -50,3 +49,7 @@ def extract_text(image_bytes: bytes, lang: str = "por") -> str:
         if lang != "eng":
             return pytesseract.image_to_string(img, lang="eng", config="--psm 6")
         raise
+
+
+def extract_text(image_bytes: bytes, lang: str = "por") -> str:
+    return extract_text_from_image(Image.open(BytesIO(image_bytes)), lang=lang)

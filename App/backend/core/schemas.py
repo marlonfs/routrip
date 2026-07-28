@@ -10,6 +10,22 @@ class AddressCandidate(BaseModel):
     confidence: float
 
 
+class SpreadsheetSheet(BaseModel):
+    name: str
+    rows: list[list[str]]
+    total_rows: int
+    truncated: bool
+
+
+class SpreadsheetPreview(BaseModel):
+    filename: str
+    sheets: list[SpreadsheetSheet]
+
+
+class AddressLines(BaseModel):
+    lines: list[str]
+
+
 class GeocodeHit(BaseModel):
     label: str
     lat: float

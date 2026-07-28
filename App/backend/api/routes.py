@@ -5,8 +5,14 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from pydantic import BaseModel
 
 from core.config import AppConfig, load_config, save_config
-from core.schemas import GeocodeHit, PlannedStop, RoutePlan, RouteSolveRequest
-from services import address_parser, gmaps_export, ocr, ors_client, solver_lkh, tabular
+from core.schemas import (
+    AddressLines,
+    PlannedStop,
+    RoutePlan,
+    RouteSolveRequest,
+    SpreadsheetPreview,
+)
+from services import address_parser, gmaps_export, ocr, ors_client, pdf, solver_lkh, tabular
 from services.eta import compute_etas
 from services.ors_client import OrsError
 
@@ -98,37 +104,52 @@ def validate_ors_key(payload: ApiKeyPayload):
 
 @router.post("/ocr")
 def run_ocr(files: list[UploadFile] = File(...)):
-    ocr_texts: list[str] = []
-    table_lines: list[str] = []
+    texts: list[str] = []
     for upload in files:
         name = (upload.filename or "").lower()
         content = upload.file.read()
         if not content:
             continue
-        if name.endswith(".xls"):
-            raise HTTPException(
-                400,
-                f"O formato .xls antigo não é suportado ('{upload.filename}'). "
-                "Salve a planilha como .xlsx ou CSV.",
-            )
         try:
-            if name.endswith(".csv") or name.endswith(".txt"):
-                table_lines.extend(tabular.lines_from_csv(content))
-            elif name.endswith((".xlsx", ".xlsm")):
-                table_lines.extend(tabular.lines_from_xlsx(content))
+            if name.endswith(".pdf"):
+                texts.append(pdf.extract_text(content))
             else:
-                ocr_texts.append(ocr.extract_text(content))
+                texts.append(ocr.extract_text(content))
         except RuntimeError as exc:
             raise HTTPException(400, str(exc))
         except Exception as exc:
             raise HTTPException(422, f"Falha ao processar o arquivo '{upload.filename}': {exc}")
 
-    candidates = address_parser.merge_candidates(
-        address_parser.extract_address_candidates("\n".join(ocr_texts)),
-        address_parser.extract_address_candidates("\n".join(table_lines), pair_lines=False),
-    )
-    combined = "\n".join(ocr_texts + table_lines)
-    return {"text": combined, "candidates": candidates}
+    combined = "\n".join(texts)
+    return {"text": combined, "candidates": address_parser.extract_address_candidates(combined)}
+
+
+@router.post("/spreadsheet/preview")
+def spreadsheet_preview(file: UploadFile = File(...)) -> SpreadsheetPreview:
+    name = (file.filename or "").lower()
+    if name.endswith(".xls"):
+        raise HTTPException(
+            400,
+            f"O formato .xls antigo não é suportado ('{file.filename}'). "
+            "Salve a planilha como .xlsx ou CSV.",
+        )
+    content = file.file.read()
+    try:
+        if name.endswith((".xlsx", ".xlsm")):
+            sheets = tabular.grid_from_xlsx(content)
+        else:
+            sheets = tabular.grid_from_csv(content)
+    except Exception as exc:
+        raise HTTPException(422, f"Falha ao ler a planilha '{file.filename}': {exc}")
+
+    if not any(sheet.rows for sheet in sheets):
+        raise HTTPException(422, f"A planilha '{file.filename}' não tem dados.")
+    return SpreadsheetPreview(filename=file.filename or "planilha", sheets=sheets)
+
+
+@router.post("/addresses/parse")
+def parse_addresses(payload: AddressLines):
+    return {"candidates": address_parser.candidates_from_lines(payload.lines)}
 
 
 @router.get("/geocode/autocomplete")

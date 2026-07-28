@@ -19,6 +19,18 @@ export interface AddressCandidate {
   confidence: number;
 }
 
+export interface SpreadsheetSheet {
+  name: string;
+  rows: string[][];
+  total_rows: number;
+  truncated: boolean;
+}
+
+export interface SpreadsheetPreview {
+  filename: string;
+  sheets: SpreadsheetSheet[];
+}
+
 export interface PlannedStop {
   stop: Stop;
   order: number;

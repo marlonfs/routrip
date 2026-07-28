@@ -43,17 +43,16 @@ def _similar(a: str, b: str) -> float:
     return SequenceMatcher(None, a.lower(), b.lower()).ratio()
 
 
-def extract_address_candidates(text: str, pair_lines: bool = True) -> list[AddressCandidate]:
-    """pair_lines junta linhas adjacentes (útil no OCR, onde o endereço pode
-    quebrar em duas linhas); em dados tabulares cada linha já é um registro."""
+def extract_address_candidates(text: str) -> list[AddressCandidate]:
+    """Avalia também pares de linhas adjacentes porque, em OCR e PDFs, o endereço
+    costuma quebrar em duas linhas."""
     lines = [ln.strip() for ln in text.splitlines()]
     lines = [ln for ln in lines if len(ln) >= 6]
 
     windows: list[str] = []
     windows.extend(lines)
-    if pair_lines:
-        for i in range(len(lines) - 1):
-            windows.append(f"{lines[i]}, {lines[i + 1]}")
+    for i in range(len(lines) - 1):
+        windows.append(f"{lines[i]}, {lines[i + 1]}")
 
     scored = []
     for raw in windows:
@@ -77,11 +76,21 @@ def extract_address_candidates(text: str, pair_lines: bool = True) -> list[Addre
     return candidates
 
 
-def merge_candidates(*groups: list[AddressCandidate]) -> list[AddressCandidate]:
-    merged: list[AddressCandidate] = []
-    for group in groups:
-        for cand in group:
-            if any(_similar(cand.cleaned, c.cleaned) > 0.85 for c in merged):
-                continue
-            merged.append(cand)
-    return merged
+def candidates_from_lines(lines: list[str]) -> list[AddressCandidate]:
+    """Linhas escolhidas manualmente na planilha: como a seleção é explícita, nada é
+    descartado por pontuação e a deduplicação é exata (endereços na mesma rua são
+    parecidos demais para o critério de similaridade)."""
+    candidates: list[AddressCandidate] = []
+    seen: set[str] = set()
+    for raw in lines:
+        cleaned = _clean(raw)
+        if not cleaned or cleaned.casefold() in seen:
+            continue
+        seen.add(cleaned.casefold())
+        candidates.append(AddressCandidate(
+            id=uuid.uuid4().hex[:8],
+            raw_text=raw,
+            cleaned=cleaned,
+            confidence=min(_score(cleaned), 1.0),
+        ))
+    return candidates

@@ -51,7 +51,7 @@ export default function OcrReviewModal() {
   return (
     <div className="modal-backdrop">
       <div className="modal">
-        <h2>Endereços encontrados nas imagens</h2>
+        <h2>Endereços encontrados</h2>
         <p className="muted">
           Revise, edite e selecione os endereços que devem entrar na rota.
         </p>

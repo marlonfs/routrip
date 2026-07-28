@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { create, type StoreApi } from "zustand";
 import { api, postJson, putJson } from "../api/client";
 import type {
   AddressCandidate,
@@ -6,8 +6,11 @@ import type {
   GeocodeHit,
   OptimizeBy,
   RoutePlan,
+  SpreadsheetPreview,
   Stop,
 } from "../types";
+
+const SPREADSHEET_RE = /\.(csv|txt|xlsx|xlsm|xls)$/i;
 
 // ESALQ/USP, Piracicaba-SP — centro inicial do mapa
 export const INITIAL_CENTER: [number, number] = [-22.7089, -47.6328];
@@ -28,7 +31,9 @@ interface AppState {
 
   candidates: AddressCandidate[];
   reviewOpen: boolean;
-  ocrLoading: boolean;
+  importLoading: boolean;
+  spreadsheet: SpreadsheetPreview | null;
+  spreadsheetQueue: File[];
 
   plan: RoutePlan | null;
   solving: boolean;
@@ -51,7 +56,9 @@ interface AppState {
   moveStopPosition: (id: string, lat: number, lon: number) => Promise<void>;
   moveOrigin: (lat: number, lon: number) => Promise<void>;
 
-  runOcr: (files: File[]) => Promise<void>;
+  importFiles: (files: File[]) => Promise<void>;
+  addSpreadsheetLines: (lines: string[]) => Promise<void>;
+  skipSpreadsheet: () => void;
   setReviewOpen: (open: boolean) => void;
 
   solve: () => Promise<void>;
@@ -74,6 +81,41 @@ async function reverseLabel(lat: number, lon: number): Promise<string> {
   return `${lat.toFixed(5)}, ${lon.toFixed(5)}`;
 }
 
+type StoreSet = StoreApi<AppState>["setState"];
+type StoreGet = StoreApi<AppState>["getState"];
+
+/** Abre a próxima planilha da fila; sem planilhas pendentes, encerra a importação
+ * levando tudo o que foi reunido para a revisão. */
+async function advanceImport(set: StoreSet, get: StoreGet) {
+  const [file, ...rest] = get().spreadsheetQueue;
+  if (file) {
+    set({ spreadsheetQueue: rest, spreadsheet: null, importLoading: true });
+    const form = new FormData();
+    form.append("file", file);
+    try {
+      const preview = await api<SpreadsheetPreview>("/api/spreadsheet/preview", {
+        method: "POST",
+        body: form,
+      });
+      set({ spreadsheet: preview, importLoading: false });
+    } catch (e) {
+      set({ error: (e as Error).message });
+      await advanceImport(set, get);
+    }
+    return;
+  }
+
+  set({ spreadsheet: null, importLoading: false });
+  if (get().candidates.length === 0) {
+    set({
+      error:
+        "Nenhum endereço foi adicionado. Tente uma imagem mais nítida ou confira as colunas escolhidas na planilha.",
+    });
+    return;
+  }
+  set({ reviewOpen: true });
+}
+
 export const useAppStore = create<AppState>((set, get) => ({
   config: null,
   optimizeBy: "duration",
@@ -85,7 +127,9 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   candidates: [],
   reviewOpen: false,
-  ocrLoading: false,
+  importLoading: false,
+  spreadsheet: null,
+  spreadsheetQueue: [],
 
   plan: null,
   solving: false,
@@ -172,26 +216,51 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (current) set({ origin: { ...current, label } });
   },
 
-  runOcr: async (files) => {
-    set({ ocrLoading: true, error: null });
-    try {
+  importFiles: async (files) => {
+    const spreadsheets = files.filter((f) => SPREADSHEET_RE.test(f.name));
+    const documents = files.filter((f) => !SPREADSHEET_RE.test(f.name));
+    set({
+      importLoading: true,
+      error: null,
+      candidates: [],
+      reviewOpen: false,
+      spreadsheet: null,
+      spreadsheetQueue: spreadsheets,
+    });
+
+    if (documents.length > 0) {
       const form = new FormData();
-      files.forEach((f) => form.append("files", f));
-      const result = await api<{ text: string; candidates: AddressCandidate[] }>(
-        "/api/ocr",
-        { method: "POST", body: form },
-      );
-      if (result.candidates.length === 0) {
-        set({
-          ocrLoading: false,
-          error: "Nenhum endereço foi identificado nos arquivos. Tente uma foto mais nítida ou confira a planilha.",
-        });
+      documents.forEach((f) => form.append("files", f));
+      try {
+        const result = await api<{ text: string; candidates: AddressCandidate[] }>(
+          "/api/ocr",
+          { method: "POST", body: form },
+        );
+        set({ candidates: result.candidates });
+      } catch (e) {
+        set({ error: (e as Error).message, importLoading: false, spreadsheetQueue: [] });
         return;
       }
-      set({ candidates: result.candidates, reviewOpen: true, ocrLoading: false });
-    } catch (e) {
-      set({ error: (e as Error).message, ocrLoading: false });
     }
+    await advanceImport(set, get);
+  },
+
+  addSpreadsheetLines: async (lines) => {
+    set({ spreadsheet: null, importLoading: true });
+    try {
+      const result = await postJson<{ candidates: AddressCandidate[] }>(
+        "/api/addresses/parse",
+        { lines },
+      );
+      set((st) => ({ candidates: [...st.candidates, ...result.candidates] }));
+    } catch (e) {
+      set({ error: (e as Error).message });
+    }
+    await advanceImport(set, get);
+  },
+
+  skipSpreadsheet: () => {
+    void advanceImport(set, get);
   },
 
   setReviewOpen: (open) => set({ reviewOpen: open }),

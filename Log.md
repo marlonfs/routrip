@@ -117,3 +117,7 @@ Apenas por curiosidade, até aqui o trecho 3.0 gastou algo próximo de U$ 31,00
 3.1 Claude Opus 5 (xHigh)
 
 Coloque a logo que está na pasta de APP no .exe do aplicativo
+
+3.2 Claude Opus 5
+
+Claude, amplie a função de carregar imagens para aceitar PDFs também, além disso, quando for escolhido uma planilha, seja em csv ou em xlsx, abra uma janela na qual o usuário pode selecionar a coluna/células que estão os endereços
