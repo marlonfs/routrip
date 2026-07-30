@@ -50,6 +50,7 @@ interface AppState {
 
   setOrigin: (s: Stop | null) => void;
   setOriginAt: (lat: number, lon: number) => Promise<void>;
+  requireOrigin: () => boolean;
   addStop: (s: Stop) => void;
   addStopAt: (lat: number, lon: number) => Promise<void>;
   removeStop: (id: string) => void;
@@ -168,7 +169,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     void get().saveSettings({ optimize_by: v });
   },
 
-  setOrigin: (s) => set({ origin: s, plan: null }),
+  setOrigin: (s) => {
+    if (!s && get().stops.length > 0) {
+      set({ error: "Remova as paradas antes de limpar o ponto de partida." });
+      return;
+    }
+    set({ origin: s, plan: null });
+  },
+
+  // O ponto de partida é o foco geográfico de toda geocodificação: sem ele, o
+  // geocoder não tem como desempatar ruas homônimas em cidades diferentes.
+  requireOrigin: () => {
+    if (get().origin) return true;
+    set({ error: "Defina o ponto de partida antes de adicionar paradas." });
+    return false;
+  },
 
   setOriginAt: async (lat, lon) => {
     set({
@@ -180,9 +195,13 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (current) set({ origin: { ...current, label } });
   },
 
-  addStop: (s) => set((st) => ({ stops: [...st.stops, s], plan: null })),
+  addStop: (s) => {
+    if (!get().requireOrigin()) return;
+    set((st) => ({ stops: [...st.stops, s], plan: null }));
+  },
 
   addStopAt: async (lat, lon) => {
+    if (!get().requireOrigin()) return;
     const id = newStopId();
     set((st) => ({
       stops: [...st.stops, { id, label: `${lat.toFixed(5)}, ${lon.toFixed(5)}`, lat, lon }],
@@ -217,6 +236,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   importFiles: async (files) => {
+    if (!get().requireOrigin()) return;
     const spreadsheets = files.filter((f) => SPREADSHEET_RE.test(f.name));
     const documents = files.filter((f) => !SPREADSHEET_RE.test(f.name));
     set({
@@ -246,6 +266,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   addSpreadsheetLines: async (lines) => {
+    if (!get().requireOrigin()) return;
     set({ spreadsheet: null, importLoading: true });
     try {
       const result = await postJson<{ candidates: AddressCandidate[] }>(

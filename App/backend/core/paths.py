@@ -25,6 +25,16 @@ def vendored_tesseract() -> Path | None:
     return exe if exe.is_file() else None
 
 
+def cnefe_db() -> Path | None:
+    """A cópia em %APPDATA% vence a embutida: é onde o botão de atualizar escreve,
+    já que _MEIPASS é somente-leitura."""
+    for candidato in (app_data_dir() / "cnefe.sqlite",
+                      resource_root() / "vendor" / "cnefe.sqlite"):
+        if candidato.is_file():
+            return candidato
+    return None
+
+
 def app_data_dir() -> Path:
     base = os.environ.get("APPDATA") or str(Path.home())
     d = Path(base) / "Routrip"

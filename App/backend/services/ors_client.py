@@ -1,42 +1,10 @@
-import re
-
 import httpx
 
 from core.schemas import GeocodeHit
+from services.br_address_terms import expandir_abreviacoes as expand_abbreviations
 
 BASE = "https://api.openrouteservice.org"
 TIMEOUT = httpx.Timeout(30.0, connect=10.0)
-
-# O geocoder do ORS lida mal com abreviações comuns de logradouro em pt-BR
-# ("R. Alfredo" não encontra "Rua Alfredo"); expandimos antes de consultar.
-_ABBREVIATIONS = {
-    "r": "rua",
-    "av": "avenida",
-    "avn": "avenida",
-    "al": "alameda",
-    "tv": "travessa",
-    "trav": "travessa",
-    "rod": "rodovia",
-    "estr": "estrada",
-    "pc": "praça",
-    "pç": "praça",
-    "pca": "praça",
-    "pça": "praça",
-    "jd": "jardim",
-    "vl": "vila",
-}
-_ABBREV_RE = re.compile(
-    r"\b(" + "|".join(re.escape(a) for a in _ABBREVIATIONS) + r")\.",
-    re.IGNORECASE,
-)
-
-
-def expand_abbreviations(text: str) -> str:
-    def _sub(m: re.Match) -> str:
-        word = _ABBREVIATIONS[m.group(1).lower()]
-        return word.capitalize() if m.group(1)[0].isupper() else word
-
-    return _ABBREV_RE.sub(_sub, text)
 
 
 class OrsError(Exception):
@@ -81,6 +49,10 @@ def _request(method: str, path: str, api_key: str, *, params=None, json=None) ->
     return resp.json()
 
 
+_PROPS = ("layer", "accuracy", "match_type", "street", "housenumber", "neighbourhood",
+          "locality", "localadmin", "county", "region_a", "postalcode")
+
+
 def _parse_hits(geojson: dict) -> list[GeocodeHit]:
     hits = []
     for feat in geojson.get("features", []):
@@ -91,23 +63,57 @@ def _parse_hits(geojson: dict) -> list[GeocodeHit]:
             lat=lat,
             lon=lon,
             confidence=props.get("confidence", 0.0),
+            **{name: props.get(name) for name in _PROPS},
         ))
     return hits
 
 
 def geocode_search(api_key: str, text: str, size: int = 5,
-                   country: str = "BR") -> list[GeocodeHit]:
-    params = {"text": expand_abbreviations(text), "size": size, "boundary.country": country}
+                   country: str = "BR",
+                   focus: tuple[float, float] | None = None,
+                   layers: str | None = None,
+                   boundary_circle: tuple[float, float, float] | None = None) -> list[GeocodeHit]:
+    params: dict = {"text": expand_abbreviations(text), "size": size,
+                    "boundary.country": country}
+    if focus:
+        params["focus.point.lat"] = focus[0]
+        params["focus.point.lon"] = focus[1]
+    if layers:
+        params["layers"] = layers
+    if boundary_circle:
+        lat, lon, radius_km = boundary_circle
+        params["boundary.circle.lat"] = lat
+        params["boundary.circle.lon"] = lon
+        params["boundary.circle.radius"] = radius_km
     return _parse_hits(_request("GET", "/geocode/search", api_key, params=params))
+
+
+def geocode_search_structured(api_key: str, *, address: str | None = None,
+                              neighbourhood: str | None = None,
+                              locality: str | None = None,
+                              region: str | None = None,
+                              postalcode: str | None = None,
+                              country: str = "BRA",
+                              size: int = 5) -> list[GeocodeHit]:
+    params: dict = {"country": country, "size": size}
+    for name, value in (("address", address), ("neighbourhood", neighbourhood),
+                        ("locality", locality), ("region", region),
+                        ("postalcode", postalcode)):
+        if value:
+            params[name] = expand_abbreviations(value) if name == "address" else value
+    return _parse_hits(_request("GET", "/geocode/search/structured", api_key, params=params))
 
 
 def geocode_autocomplete(api_key: str, text: str,
                          focus: tuple[float, float] | None = None,
-                         country: str = "BR") -> list[GeocodeHit]:
+                         country: str = "BR",
+                         layers: str | None = None) -> list[GeocodeHit]:
     params = {"text": expand_abbreviations(text), "size": 8, "boundary.country": country}
     if focus:
         params["focus.point.lat"] = focus[0]
         params["focus.point.lon"] = focus[1]
+    if layers:
+        params["layers"] = layers
     return _parse_hits(_request("GET", "/geocode/autocomplete", api_key, params=params))
 
 

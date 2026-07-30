@@ -13,6 +13,9 @@ class AppConfig(BaseModel):
     optimize_by: Literal["duration", "distance"] = "duration"
     departure_time: str = "08:00"
     stop_minutes: int = 10
+    validate_addresses: bool = True
+    ocr_preprocess: bool = True
+    ocr_psm_mode: Literal["auto", "6", "11"] = "auto"
 
 
 def _config_file():

@@ -12,6 +12,9 @@ Set-Location (Join-Path $root "backend")
 if (-not (Test-Path "vendor\tesseract\tesseract.exe")) {
     Write-Warning "Tesseract não vendorizado (vendor\tesseract). O exe exigirá Tesseract instalado na máquina. Rode scripts\get_tesseract.ps1 para embutir."
 }
+if (-not (Test-Path "vendor\cnefe.sqlite")) {
+    Write-Warning "Base do IBGE ausente (vendor\cnefe.sqlite). A validação de endereços cairá para o ViaCEP sozinho. Rode 'python tools\build_cnefe.py' para gerá-la."
+}
 & $python -m PyInstaller routrip.spec --noconfirm
 if ($LASTEXITCODE -ne 0) { throw "PyInstaller falhou." }
 

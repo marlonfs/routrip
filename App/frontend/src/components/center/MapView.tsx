@@ -165,6 +165,8 @@ export default function MapView() {
       {menu && (
         <div className="ctx-menu" style={{ left: menu.x, top: menu.y }}>
           <button
+            disabled={!origin}
+            title={origin ? undefined : "Defina o ponto de partida antes de adicionar paradas"}
             onClick={() => {
               void addStopAt(menu.lat, menu.lng);
               setMenu(null);

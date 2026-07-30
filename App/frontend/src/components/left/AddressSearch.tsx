@@ -5,6 +5,7 @@ import type { GeocodeHit } from "../../types";
 
 export default function AddressSearch() {
   const addStop = useAppStore((s) => s.addStop);
+  const origin = useAppStore((s) => s.origin);
   const setOrigin = useAppStore((s) => s.setOrigin);
   const setFlyTarget = useAppStore((s) => s.setFlyTarget);
   const mapCenter = useAppStore((s) => s.mapCenter);
@@ -21,12 +22,13 @@ export default function AddressSearch() {
       setHits([]);
       return;
     }
+    const focus = origin ? [origin.lat, origin.lon] : mapCenter;
     timer.current = window.setTimeout(async () => {
       setLoading(true);
       try {
         const results = await api<GeocodeHit[]>(
           `/api/geocode/autocomplete?text=${encodeURIComponent(query)}` +
-            `&focus_lat=${mapCenter[0]}&focus_lon=${mapCenter[1]}`,
+            `&focus_lat=${focus[0]}&focus_lon=${focus[1]}`,
         );
         setHits(results);
       } catch (e) {
@@ -36,7 +38,7 @@ export default function AddressSearch() {
       }
     }, 300);
     return () => window.clearTimeout(timer.current);
-  }, [query, mapCenter, setError]);
+  }, [query, mapCenter, origin, setError]);
 
   const pick = (hit: GeocodeHit, asOrigin: boolean) => {
     const stop = { id: newStopId(), label: hit.label, lat: hit.lat, lon: hit.lon };
@@ -63,7 +65,15 @@ export default function AddressSearch() {
               <li key={i}>
                 <span className="hit-label" title={h.label}>{h.label}</span>
                 <div className="hit-actions">
-                  <button title="Adicionar como parada" onClick={() => pick(h, false)}>
+                  <button
+                    title={
+                      origin
+                        ? "Adicionar como parada"
+                        : "Defina o ponto de partida antes de adicionar paradas"
+                    }
+                    disabled={!origin}
+                    onClick={() => pick(h, false)}
+                  >
                     + Parada
                   </button>
                   <button title="Definir como ponto de partida" onClick={() => pick(h, true)}>

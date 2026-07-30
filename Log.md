@@ -111,13 +111,46 @@ Além disso, eu preciso também que você reestruture a questão visual. A parte
 Preciso que você retire, da caixa de endereços, o botão "partida no mapa". Além disso, em configurações, a gente consegue selecionar tempo de viagem ou então distância. Eu quero que ao invés de ser uma caixa de selecionar, sejam dois botões, em que a gente consiga ver qual tá selecionado. Além disso, junto do adicionar imagens, vamos mudar para, adicionar imagens ou arquivos. Porque eu também quero que o programa consiga ler se o usuário mandar um arquivo em Excel, ou então CSV, com vários endereços. Então adicione essa funcionalidade de ler csv/.xlsx
 
 ###
-Apenas por curiosidade, até aqui o trecho 3.0 gastou algo próximo de U$ 31,00
+-> Apenas por curiosidade, até aqui o trecho  3.0 gastou algo próximo de U$ 31,00 de crédito com o Fable 5
+-> O sistema neste ponto já está funcionando, devemos notar que alguns pontos permanecem em abertos, esses serão tratados posteriormente.
 ###
 
 3.1 Claude Opus 5 (xHigh)
 
 Coloque a logo que está na pasta de APP no .exe do aplicativo
 
-3.2 Claude Opus 5
+3.2 Claude Opus 5 (xHigh)
 
 Claude, amplie a função de carregar imagens para aceitar PDFs também, além disso, quando for escolhido uma planilha, seja em csv ou em xlsx, abra uma janela na qual o usuário pode selecionar a coluna/células que estão os endereços
+
+###
+-> O sistema tem um grande problemas com o motor de busca / address cleaning e principalmente em encontrar a rua correta -> Isso acontece pq não existe uma validação de endereço. Para isso, reestruturarei o parser e adicionarei a base de dados do IBGE CNEFE para realizar a conferência de resultados
+-> Além disso, o OCR não está capturando todos os textos de maneira correta, para isso, vamos utilizar o RapidOCR, baixando o modelo em português que é mais capaz em detecção de linha, muito útil ao tratar de notas fiscais e/ou pedidos de compra.
+-> O intuito agora é(
+"1. Criar "layers" e focus.point no ponto de partida (apenas permitir adicionar paradas após o ponto de partida ter sido adicionado) na busca geocode_search.
+2. Ajustar as imagens antes de enviar para o OCR: Upscale + binarização adaptativa (ajuda com iluminação heterogênea na imagem) + deskew para ajustar inclinação. Testar PSM != 6 pelo fato de queos textos podem estar em diferentes disposições ao longo da imagem e selecionar baseado na confiança do resultado.
+3. Estruturar o parser em campos, e testar no ViaCEP para validar a existência do endereço e conferir com a latitude e longitude distribuido pelos dados do IBGE no CNEFE, validando a lat&long com o endereço buscado em perdas de caracteres.
+)
+###
+
+3.3 Claude Opus 5 (max)
+
+Preciso que você inclua na função geocode_search layers + focus.point no ponto de partida. Para isso, eu preciso que as paradas só sejam permitidas de ser adicionado um ponto de partida no mapa. Depois, preciso que a imagem recebida pelo aplicativo, sofra um upscale, uma binarização adaptativa, mais um deskew. Além disso, troca o PSM do Tesseract para --psm 11, para que o Tesseract entenda diferentes disposições de textos na imagem, e escolher por uma confiança na palavra. Depois, eu preciso que você faça um parser estruturado em campos, que será testado no ViaCEP. Com essa análise no ViaCEP, a gente tem de volta o endereço encontrado de forma correta, o qual será conferido com o cep presente no CNEFE do IBGE que deverá ser baixado e comprimido em CEP → lat, lon, raio, logradouro, localidade e município para que a gente tenha uma validação dos endereços
+
+"Plan Mode"
+
+ ● Para a base CEP → lat/lon/raio, qual fonte do CNEFE usar? (O IBGE já publica um agregado por CEP pronto de 8,6 MB; os microdados brutos por UF somam 3,7 GB comprimidos, ~1 GB só SP)
+  → Agregado oficial por CEP
+ ● Onde a base de CEPs deve ser gerada e de onde o app a consome?
+  → Embutido, com botão de atualizar
+ ● O bloqueio 'sem ponto de partida não dá para adicionar parada' vale para quais caminhos de entrada?
+  → Todos os caminhos
+ ● Para upscale + binarização adaptativa + deskew, qual biblioteca de imagem usar?
+  → OpenCV headless
+ ● Sobre o --psm 11: ele é modo 'texto esparso' e não faz análise de layout — o Tesseract devolve palavras soltas, sem ordem de leitura confiável, e em texto corrido a acurácia costuma cair em relação ao psm 6 atual. Como proceder?
+  → Rodar psm 6 e 11, escolher o melhor
+ ● O CNEFE também publica arquivos por município (42 KB a 420 KB cada) com logradouro + número + bairro + CEP + lat/lon de CADA endereço. Baixar os poucos municípios onde você opera daria geocodificação offline com número de porta, sem ORS e sem ViaCEP. Incluímos isso?
+  → Agora não — só o agregado por CEP (recomendado)
+
+-> O sistema agora tem a questão de endereços e buscas quase prontas, com exceção da busca por numeros, que será o próximo passo a resolver.
+-> A visualização de OCR ainda está bem ruim, novas soluções devem ser pensadas, PSM 6 e 11 não foi o suficiente

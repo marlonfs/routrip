@@ -1,3 +1,4 @@
+import uuid
 import webbrowser
 from datetime import date, datetime
 
@@ -8,11 +9,24 @@ from core.config import AppConfig, load_config, save_config
 from core.schemas import (
     AddressLines,
     PlannedStop,
+    ResolvedAddress,
+    ResolveRequest,
     RoutePlan,
     RouteSolveRequest,
     SpreadsheetPreview,
 )
-from services import address_parser, gmaps_export, ocr, ors_client, pdf, solver_lkh, tabular
+from services import (
+    address_parser,
+    address_resolver,
+    cnefe,
+    gmaps_export,
+    ocr,
+    ors_client,
+    pdf,
+    solver_lkh,
+    tabular,
+    viacep,
+)
 from services.eta import compute_etas
 from services.ors_client import OrsError
 
@@ -29,6 +43,9 @@ class ConfigUpdate(BaseModel):
     optimize_by: str | None = None
     departure_time: str | None = None
     stop_minutes: int | None = None
+    validate_addresses: bool | None = None
+    ocr_preprocess: bool | None = None
+    ocr_psm_mode: str | None = None
 
 
 class ApiKeyPayload(BaseModel):
@@ -153,22 +170,79 @@ def parse_addresses(payload: AddressLines):
 
 
 @router.get("/geocode/autocomplete")
-def autocomplete(text: str, focus_lat: float | None = None, focus_lon: float | None = None):
+def autocomplete(text: str, focus_lat: float | None = None, focus_lon: float | None = None,
+                 layers: str | None = None):
     if len(text.strip()) < 2:
         return []
     key = _require_key()
     focus = (focus_lat, focus_lon) if focus_lat is not None and focus_lon is not None else None
     try:
-        return ors_client.geocode_autocomplete(key, text, focus=focus)
+        return ors_client.geocode_autocomplete(key, text, focus=focus, layers=layers)
     except OrsError as exc:
         raise _http_from_ors(exc)
 
 
 @router.get("/geocode/search")
-def search(text: str):
+def search(text: str, focus_lat: float | None = None, focus_lon: float | None = None,
+           layers: str | None = None):
     key = _require_key()
+    focus = (focus_lat, focus_lon) if focus_lat is not None and focus_lon is not None else None
     try:
-        return ors_client.geocode_search(key, text)
+        return ors_client.geocode_search(key, text, focus=focus, layers=layers)
+    except OrsError as exc:
+        raise _http_from_ors(exc)
+
+
+@router.get("/cep/{cep}")
+def consultar_cep(cep: str):
+    try:
+        info = viacep.consultar(cep)
+    except viacep.CepIndisponivel as exc:
+        raise HTTPException(503, str(exc))
+    if info is None:
+        raise HTTPException(404, "CEP não encontrado.")
+    return info
+
+
+@router.get("/cnefe/status")
+def cnefe_status():
+    return cnefe.status()
+
+
+@router.get("/cnefe/lookup")
+def cnefe_lookup(cep: str):
+    achado = cnefe.lookup(cep)
+    if achado is None:
+        raise HTTPException(404, "CEP ausente na base do CNEFE.")
+    return achado
+
+
+@router.post("/geocode/resolve")
+def resolve_address(payload: ResolveRequest):
+    """Um endereço por chamada: a cascata custa 1–2 s e um lote de 40 viraria uma
+    requisição de um minuto sem progresso nem cancelamento."""
+    key = _require_key()
+    cfg = load_config()
+    origin = ((payload.origin_lat, payload.origin_lon)
+              if payload.origin_lat is not None and payload.origin_lon is not None else None)
+    if not cfg.validate_addresses:
+        try:
+            hits = ors_client.geocode_search(key, payload.text, focus=origin)
+        except OrsError as exc:
+            raise _http_from_ors(exc)
+        primeiro = hits[0] if hits else None
+        return ResolvedAddress(
+            id=payload.id or uuid.uuid4().hex[:8],
+            status="nao_verificado" if primeiro else "nao_encontrado",
+            label=primeiro.label if primeiro else payload.text,
+            lat=primeiro.lat if primeiro else None,
+            lon=primeiro.lon if primeiro else None,
+            hit=primeiro,
+            alternatives=hits[:8],
+        )
+    try:
+        return address_resolver.resolve(payload.text, api_key=key, origin=origin,
+                                        item_id=payload.id)
     except OrsError as exc:
         raise _http_from_ors(exc)
 

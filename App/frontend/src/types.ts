@@ -10,6 +10,29 @@ export interface GeocodeHit {
   lat: number;
   lon: number;
   confidence: number;
+  layer?: string | null;
+  accuracy?: string | null;
+  match_type?: string | null;
+  street?: string | null;
+  housenumber?: string | null;
+  neighbourhood?: string | null;
+  locality?: string | null;
+  localadmin?: string | null;
+  county?: string | null;
+  region_a?: string | null;
+  postalcode?: string | null;
+}
+
+export interface ParsedAddress {
+  tipo_logradouro: string | null;
+  logradouro: string | null;
+  numero: string | null;
+  sem_numero: boolean;
+  complemento: string | null;
+  bairro: string | null;
+  localidade: string | null;
+  uf: string | null;
+  cep: string | null;
 }
 
 export interface AddressCandidate {
@@ -17,6 +40,56 @@ export interface AddressCandidate {
   raw_text: string;
   cleaned: string;
   confidence: number;
+  parsed?: ParsedAddress | null;
+}
+
+export type ResolveStatus =
+  | "verificado"
+  | "provavel"
+  | "aproximado"
+  | "divergente"
+  | "nao_encontrado"
+  | "nao_verificado";
+
+export interface ValidationCheck {
+  nome: string;
+  ok: boolean;
+  detalhe: string | null;
+}
+
+export interface CepInfo {
+  cep: string;
+  logradouro: string | null;
+  bairro: string | null;
+  localidade: string | null;
+  uf: string | null;
+  ibge: string | null;
+  generico: boolean;
+  source: string;
+}
+
+export interface ResolvedAddress {
+  id: string;
+  status: ResolveStatus;
+  label: string;
+  lat: number | null;
+  lon: number | null;
+  parsed: ParsedAddress | null;
+  cep_info: CepInfo | null;
+  hit: GeocodeHit | null;
+  alternatives: GeocodeHit[];
+  checks: ValidationCheck[];
+  avisos: string[];
+  etapa: string | null;
+}
+
+export interface CnefeStatus {
+  disponivel: boolean;
+  fonte: string | null;
+  gerado_em: string | null;
+  n_ceps: number;
+  n_municipios: number;
+  caminho: string | null;
 }
 
 export interface SpreadsheetSheet {
@@ -58,4 +131,7 @@ export interface AppConfigResponse {
   optimize_by: OptimizeBy;
   departure_time: string;
   stop_minutes: number;
+  validate_addresses: boolean;
+  ocr_preprocess: boolean;
+  ocr_psm_mode: "auto" | "6" | "11";
 }

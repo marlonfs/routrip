@@ -1,6 +1,7 @@
-import { useState } from "react";
-import { postJson } from "../../api/client";
+import { useEffect, useState } from "react";
+import { api, postJson } from "../../api/client";
 import { useAppStore } from "../../store/useAppStore";
+import type { CnefeStatus } from "../../types";
 
 export default function SettingsPanel() {
   const config = useAppStore((s) => s.config);
@@ -12,6 +13,14 @@ export default function SettingsPanel() {
   const [keyInput, setKeyInput] = useState("");
   const [keyStatus, setKeyStatus] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
+  const [cnefe, setCnefe] = useState<CnefeStatus | null>(null);
+
+  useEffect(() => {
+    if (!open || cnefe) return;
+    void api<CnefeStatus>("/api/cnefe/status")
+      .then(setCnefe)
+      .catch(() => undefined);
+  }, [open, cnefe]);
 
   const saveKey = async () => {
     const key = keyInput.trim();
@@ -86,6 +95,23 @@ export default function SettingsPanel() {
               </button>
             </div>
           </div>
+
+          <label className="field">
+            <span>Validação de endereços</span>
+            <div className="row">
+              <input
+                type="checkbox"
+                checked={config?.validate_addresses ?? true}
+                onChange={(e) => void saveSettings({ validate_addresses: e.target.checked })}
+              />
+              <small>Conferir cada endereço no CEP e na base do IBGE antes de aceitar</small>
+            </div>
+            <small>
+              {cnefe?.disponivel
+                ? `Base ${cnefe.fonte}: ${cnefe.n_ceps.toLocaleString("pt-BR")} CEPs em ${cnefe.n_municipios.toLocaleString("pt-BR")} municípios.`
+                : "Base do IBGE não encontrada — a validação segue pelo CEP, com menos precisão."}
+            </small>
+          </label>
         </div>
       )}
     </section>

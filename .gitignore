@@ -22,3 +22,6 @@ App/backend/static/
 App/backend/build/
 App/backend/dist/
 App/backend/vendor/tesseract/
+App/backend/vendor/cnefe.sqlite
+App/.cache-cnefe/
+App/.cache-cnefe.log

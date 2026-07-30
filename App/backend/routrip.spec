@@ -18,6 +18,10 @@ hiddenimports = [
     "uvicorn.lifespan",
     "uvicorn.lifespan.on",
     "webview.platforms.edgechromium",
+    # O import do cv2 é lazy, dentro de ocr_preprocess._cv2(), para que uma falha de
+    # empacotamento degrade o OCR em vez de derrubar o aplicativo.
+    "cv2",
+    "numpy",
 ]
 
 a = Analysis(

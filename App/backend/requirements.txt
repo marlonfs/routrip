@@ -4,6 +4,10 @@ pywebview>=5.1
 httpx>=0.27
 pytesseract>=0.3.10
 pillow>=10.3
+# O 5.x reorganizou o pacote e o hook do PyInstaller ainda não acompanha: o exe
+# empacotado morre com falha nativa (sem traceback) na primeira chamada ao cv2.
+opencv-python-headless>=4.9,<5
+numpy>=2,<3
 pydantic>=2.7
 python-multipart>=0.0.9
 openpyxl>=3.1

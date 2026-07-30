@@ -4,6 +4,7 @@ import { useAppStore } from "../../store/useAppStore";
 export default function ImageUpload() {
   const importFiles = useAppStore((s) => s.importFiles);
   const importLoading = useAppStore((s) => s.importLoading);
+  const origin = useAppStore((s) => s.origin);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const onFiles = (list: FileList | null) => {
@@ -17,13 +18,16 @@ export default function ImageUpload() {
       <div className="card-body">
         <button
           className="btn-secondary full"
-          disabled={importLoading}
+          disabled={importLoading || !origin}
+          title={origin ? undefined : "Defina o ponto de partida antes de importar endereços"}
           onClick={() => inputRef.current?.click()}
         >
           {importLoading ? "Lendo arquivos..." : "📎 Adicionar imagens ou arquivos"}
         </button>
         <small className="muted">
-          Fotos e PDFs de notas/pedidos (OCR) ou planilhas com endereços (.xlsx / CSV)
+          {origin
+            ? "Fotos e PDFs de notas/pedidos (OCR) ou planilhas com endereços (.xlsx / CSV)"
+            : "Defina o ponto de partida primeiro: ele orienta a busca dos endereços importados."}
         </small>
         <input
           ref={inputRef}
