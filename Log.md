@@ -150,7 +150,18 @@ Preciso que você inclua na função geocode_search layers + focus.point no pont
  ● Sobre o --psm 11: ele é modo 'texto esparso' e não faz análise de layout — o Tesseract devolve palavras soltas, sem ordem de leitura confiável, e em texto corrido a acurácia costuma cair em relação ao psm 6 atual. Como proceder?
   → Rodar psm 6 e 11, escolher o melhor
  ● O CNEFE também publica arquivos por município (42 KB a 420 KB cada) com logradouro + número + bairro + CEP + lat/lon de CADA endereço. Baixar os poucos municípios onde você opera daria geocodificação offline com número de porta, sem ORS e sem ViaCEP. Incluímos isso?
-  → Agora não — só o agregado por CEP (recomendado)
+  → Agora não — só o agregado por CEP
 
 -> O sistema agora tem a questão de endereços e buscas quase prontas, com exceção da busca por numeros, que será o próximo passo a resolver.
 -> A visualização de OCR ainda está bem ruim, novas soluções devem ser pensadas, PSM 6 e 11 não foi o suficiente
+
+3.4 Claude Opus 5 (xHigh)
+
+Claude, preciso que você, sempre que for, propor o endereço para o usuário selecionar após fazer OCR, valide ele antes para que o usuário só possa escolher entre os endereços validados. Assim, não vai ser proposto o endereço que não existe. Apenas o que são reais e estão no CNEFE.
+
+● Para só propor endereços reais, o CNEFE precisa saber quais ruas existem em cada município — hoje ele só sabe consultar CEP. Qual nível de detalhe você quer no índice de ruas?
+  → Ruas + quarteirões (Recomendado)
+● E quando o endereço lido não existir no CNEFE (rua nova, condomínio, zona rural, ou OCR que errou demais)? O Censo é de 2022, então isso vai acontecer
+  → Exceção explícita (Recomendado)
+● O geocoder do OpenRouteService ainda deve aparecer nas propostas?1
+  → Só como reserva marcada (Recomendado)

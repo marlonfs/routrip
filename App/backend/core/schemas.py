@@ -46,12 +46,32 @@ class CnefeCep(BaseModel):
     municipio: CnefeMunicipio | None = None
 
 
+class CnefeLogradouro(BaseModel):
+    cod_ibge: str
+    nome: str
+    tipo: str | None = None
+    label: str
+    lat: float
+    lon: float
+    raio_m: int
+    n_enderecos: int = 0
+    cep: str | None = None
+    num_min: int | None = None
+    num_max: int | None = None
+    numero: int | None = None
+    numero_confirmado: bool = False
+    similaridade: float = 1.0
+    municipio: CnefeMunicipio | None = None
+
+
 class CnefeStatus(BaseModel):
     disponivel: bool
     fonte: str | None = None
     gerado_em: str | None = None
     n_ceps: int = 0
     n_municipios: int = 0
+    n_logradouros: int = 0
+    busca_por_rua: bool = False
     caminho: str | None = None
 
 
@@ -111,6 +131,28 @@ class ValidationCheck(BaseModel):
     detalhe: str | None = None
 
 
+class AddressOption(BaseModel):
+    """Um endereço que o usuário pode escolher. `fonte="cnefe"` existe no cadastro do
+    IBGE; `fonte="ors"` é palpite de geocoder e só aparece quando o CNEFE não achou
+    nada — daí `confirmado` nunca ser verdadeiro nesse caso."""
+
+    id: str
+    fonte: Literal["cnefe", "ors"]
+    confirmado: bool
+    label: str
+    lat: float
+    lon: float
+    logradouro: str | None = None
+    numero: int | None = None
+    numero_confirmado: bool = False
+    num_min: int | None = None
+    num_max: int | None = None
+    municipio: str | None = None
+    uf: str | None = None
+    cep: str | None = None
+    similaridade: float = 1.0
+
+
 class ResolvedAddress(BaseModel):
     id: str
     status: ResolveStatus
@@ -121,7 +163,7 @@ class ResolvedAddress(BaseModel):
     cep_info: CepInfo | None = None
     cnefe: CnefeCep | None = None
     hit: GeocodeHit | None = None
-    alternatives: list[GeocodeHit] = []
+    options: list[AddressOption] = []
     checks: list[ValidationCheck] = []
     avisos: list[str] = []
     etapa: str | None = None

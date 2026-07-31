@@ -68,6 +68,26 @@ export interface CepInfo {
   source: string;
 }
 
+/** Endereço oferecido ao usuário. `fonte: "cnefe"` existe no cadastro do IBGE;
+ * `fonte: "ors"` é palpite de geocoder e só aparece quando o CNEFE não achou nada. */
+export interface AddressOption {
+  id: string;
+  fonte: "cnefe" | "ors";
+  confirmado: boolean;
+  label: string;
+  lat: number;
+  lon: number;
+  logradouro: string | null;
+  numero: number | null;
+  numero_confirmado: boolean;
+  num_min: number | null;
+  num_max: number | null;
+  municipio: string | null;
+  uf: string | null;
+  cep: string | null;
+  similaridade: number;
+}
+
 export interface ResolvedAddress {
   id: string;
   status: ResolveStatus;
@@ -77,10 +97,25 @@ export interface ResolvedAddress {
   parsed: ParsedAddress | null;
   cep_info: CepInfo | null;
   hit: GeocodeHit | null;
-  alternatives: GeocodeHit[];
+  options: AddressOption[];
   checks: ValidationCheck[];
   avisos: string[];
   etapa: string | null;
+}
+
+export interface CnefeMunicipio {
+  cod_ibge: string;
+  nome: string | null;
+  uf: string | null;
+  lat: number;
+  lon: number;
+  raio_m: number;
+  n_ceps: number;
+}
+
+export interface CnefeBusca {
+  opcoes: AddressOption[];
+  municipio: CnefeMunicipio | null;
 }
 
 export interface CnefeStatus {
@@ -89,6 +124,8 @@ export interface CnefeStatus {
   gerado_em: string | null;
   n_ceps: number;
   n_municipios: number;
+  n_logradouros: number;
+  busca_por_rua: boolean;
   caminho: string | null;
 }
 

@@ -7,6 +7,7 @@ from pydantic import BaseModel
 
 from core.config import AppConfig, load_config, save_config
 from core.schemas import (
+    AddressCandidate,
     AddressLines,
     PlannedStop,
     ResolvedAddress,
@@ -138,7 +139,8 @@ def run_ocr(files: list[UploadFile] = File(...)):
             raise HTTPException(422, f"Falha ao processar o arquivo '{upload.filename}': {exc}")
 
     combined = "\n".join(texts)
-    return {"text": combined, "candidates": address_parser.extract_address_candidates(combined)}
+    candidatos = address_parser.extract_address_candidates(combined)
+    return {"text": combined, "candidates": candidatos, "propostas": _propor(candidatos)}
 
 
 @router.post("/spreadsheet/preview")
@@ -164,9 +166,36 @@ def spreadsheet_preview(file: UploadFile = File(...)) -> SpreadsheetPreview:
     return SpreadsheetPreview(filename=file.filename or "planilha", sheets=sheets)
 
 
+def _propor(candidatos: list[AddressCandidate]) -> list[ResolvedAddress]:
+    """As propostas saem junto com os candidatos porque são de graça: tudo sai da base
+    local, sem rede nem cota do ORS. O modal já abre com endereços que existem."""
+    return [address_resolver.propor(c.cleaned or c.raw_text, item_id=c.id) for c in candidatos]
+
+
 @router.post("/addresses/parse")
 def parse_addresses(payload: AddressLines):
-    return {"candidates": address_parser.candidates_from_lines(payload.lines)}
+    candidatos = address_parser.candidates_from_lines(payload.lines)
+    return {"candidates": candidatos, "propostas": _propor(candidatos)}
+
+
+@router.get("/cnefe/buscar")
+def cnefe_buscar(texto: str, municipio: str | None = None, uf: str | None = None,
+                 cep: str | None = None, cod_ibge: str | None = None,
+                 numero: int | None = None):
+    """Busca manual do modal, para quando a leitura saiu ruim demais para casar sozinha."""
+    if not cnefe.busca_por_rua():
+        raise HTTPException(503, "A base do CNEFE instalada não tem o índice de ruas. "
+                                 "Atualize a base para buscar endereços por nome.")
+    if len(texto.strip()) < 3:
+        return {"opcoes": [], "municipio": None}
+    muni = cnefe.resolver_municipio(cod_ibge=cod_ibge, cep=cep, municipio=municipio, uf=uf)
+    if muni is None:
+        raise HTTPException(422, "Informe a cidade (e o estado) para procurar a rua.")
+    achados = cnefe.buscar_logradouro(texto, cod_ibge=muni.cod_ibge, numero=numero, limite=10)
+    # Mesmo formato das propostas da importação: o modal trata escolha manual e
+    # automática pelo mesmo caminho.
+    opcoes = [address_resolver.opcao_cnefe(a, i) for i, a in enumerate(achados)]
+    return {"opcoes": opcoes, "municipio": muni}
 
 
 @router.get("/geocode/autocomplete")
@@ -238,7 +267,7 @@ def resolve_address(payload: ResolveRequest):
             lat=primeiro.lat if primeiro else None,
             lon=primeiro.lon if primeiro else None,
             hit=primeiro,
-            alternatives=hits[:8],
+            options=[address_resolver.opcao_ors(h, i) for i, h in enumerate(hits[:8])],
         )
     try:
         return address_resolver.resolve(payload.text, api_key=key, origin=origin,

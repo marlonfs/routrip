@@ -2,18 +2,27 @@
 
 O problema que isto ataca: o geocoder devolve "Rua Alfredo Guedes" de Campinas e de
 Piracicaba com a mesma confiança, e pegar `hits[0]` entrega em cidade errada com
-aparência de sucesso. Aqui o CEP vira âncora — via ViaCEP para os nomes e via CNEFE
-para a coordenada — e todo resultado é conferido contra ela antes de ser aceito.
+aparência de sucesso. Pior, ele inventa: oferece com a mesma cara uma rua que não
+existe no município.
+
+Por isso a ordem aqui é cadastro primeiro, geocoder depois. Quem responde "esta rua
+existe?" é o CNEFE/IBGE, e só o que ele confirma vira opção para o usuário escolher.
+O ORS entra para refinar a casa dentro da rua certa, ou como reserva explicitamente
+marcada quando o cadastro não tem nada — nunca como proposta confirmada.
 """
 
 import uuid
 from difflib import SequenceMatcher
 
 from core.schemas import (
+    AddressOption,
     CepInfo,
     CnefeCep,
+    CnefeLogradouro,
+    CnefeMunicipio,
     GeocodeHit,
     ParsedAddress,
+    ResolveStatus,
     ResolvedAddress,
     ValidationCheck,
 )
@@ -24,6 +33,9 @@ from services.viacep import CepIndisponivel
 
 SIM_LOGRADOURO_MIN = 0.6
 SIM_MUNICIPIO_MIN = 0.85
+# Piso para o cadastro responder sozinho. Abaixo disso a rua encontrada ainda é real,
+# mas a semelhança com o texto lido é fraca demais para dispensar o olho do usuário.
+SIM_CNEFE_AUTO = 0.8
 DIST_TOLERANCIA_MIN_M = 400.0
 LAYERS_ENDERECO = "address,street,venue"
 # O Pelias no Brasil raramente devolve layer=address; "street" é o caso normal e
@@ -123,6 +135,75 @@ def _degraus(p: ParsedAddress, ancora: CnefeCep | None, info: CepInfo | None,
     return degraus
 
 
+def _numero_int(p: ParsedAddress) -> int | None:
+    bruto = (p.numero or "").strip()
+    return int(bruto) if bruto.isdigit() and len(bruto) <= 5 else None
+
+
+def _buscar_cnefe(p: ParsedAddress, ancora: CnefeCep | None, municipio: str | None,
+                  limite: int = 6) -> list[CnefeLogradouro]:
+    if not p.logradouro or not cnefe.busca_por_rua():
+        return []
+    via = " ".join(x for x in (p.tipo_logradouro, p.logradouro) if x)
+    return cnefe.buscar_logradouro(
+        via, cod_ibge=ancora.cod_ibge if ancora else None, cep=p.cep,
+        municipio=municipio or p.localidade, uf=p.uf,
+        numero=_numero_int(p), limite=limite)
+
+
+def opcao_cnefe(a: CnefeLogradouro, i: int) -> AddressOption:
+    tipo = (a.tipo or "").title()
+    return AddressOption(
+        id=f"c{i}", fonte="cnefe", confirmado=True, label=a.label, lat=a.lat, lon=a.lon,
+        logradouro=f"{tipo} {a.nome.title()}".strip(),
+        numero=a.numero, numero_confirmado=a.numero_confirmado,
+        num_min=a.num_min, num_max=a.num_max,
+        municipio=a.municipio.nome if a.municipio else None,
+        uf=a.municipio.uf if a.municipio else None,
+        cep=a.cep, similaridade=a.similaridade,
+    )
+
+
+def opcao_ors(h: GeocodeHit, i: int) -> AddressOption:
+    return AddressOption(
+        id=f"o{i}", fonte="ors", confirmado=False, label=h.label, lat=h.lat, lon=h.lon,
+        logradouro=h.street, numero=int(h.housenumber) if (h.housenumber or "").isdigit() else None,
+        municipio=h.locality or h.localadmin or h.county, uf=h.region_a,
+        cep=h.postalcode, similaridade=h.confidence,
+    )
+
+
+def _status_cnefe(a: CnefeLogradouro) -> ResolveStatus:
+    if a.similaridade < SIM_CNEFE_AUTO:
+        return "nao_verificado"
+    return "verificado" if a.numero_confirmado else "provavel"
+
+
+def _refinar_no_ors(a: CnefeLogradouro, api_key: str) -> tuple[float, float] | None:
+    """A rua já está decidida pelo cadastro; aqui só se tenta melhorar onde fica a casa.
+
+    Vale a chamada apenas quando o número está fora da faixa cadastrada — dentro dela a
+    interpolação já erra cerca de 35 m. Só aceita `layer=address` com número dentro do
+    raio da própria rua: qualquer coisa fora disso é outra via.
+    """
+    if a.numero is None or a.numero_confirmado or a.municipio is None:
+        return None
+    rua = f"{(a.tipo or '').title()} {a.nome.title()}".strip()
+    alvo = f"{rua}, {a.numero}, {a.municipio.nome} - {a.municipio.uf}"
+    try:
+        hits = ors_client.geocode_search(
+            api_key, alvo, layers="address",
+            boundary_circle=(a.lat, a.lon, max(1.0, a.raio_m * 2 / 1000)))
+    except OrsError:
+        return None
+    limite = max(float(a.raio_m), DIST_TOLERANCIA_MIN_M)
+    for h in hits:
+        if (h.layer == "address" and h.housenumber
+                and cnefe.distancia_m(h.lat, h.lon, a.lat, a.lon) <= limite):
+            return h.lat, h.lon
+    return None
+
+
 def _municipio_confere(hit: GeocodeHit, esperado: str | None) -> bool:
     if not esperado:
         return True
@@ -130,8 +211,23 @@ def _municipio_confere(hit: GeocodeHit, esperado: str | None) -> bool:
     return any(_similar(n, esperado) >= SIM_MUNICIPIO_MIN for n in nomes)
 
 
+def _cnefe_confirma(hit: GeocodeHit, muni: CnefeMunicipio | None) -> ValidationCheck | None:
+    """Reprova a rua que o geocoder inventou. Sem município resolvido não dá para
+    afirmar nada, e um check ausente é melhor que um check chutado."""
+    if muni is None or not cnefe.busca_por_rua():
+        return None
+    rua = hit.street or (hit.label or "").split(",")[0]
+    if not rua.strip():
+        return None
+    achados = cnefe.buscar_logradouro(rua, cod_ibge=muni.cod_ibge, limite=1)
+    return ValidationCheck(
+        nome="cnefe_confirma", ok=bool(achados),
+        detalhe=achados[0].label if achados else f"'{rua}' não consta em {muni.nome}")
+
+
 def _validar(hit: GeocodeHit, p: ParsedAddress, ancora: CnefeCep | None,
-             municipio: str | None) -> list[ValidationCheck]:
+             municipio: str | None, muni: CnefeMunicipio | None = None
+             ) -> list[ValidationCheck]:
     checks = [
         ValidationCheck(nome="camada", ok=hit.layer in LAYERS_ACEITAVEIS,
                         detalhe=hit.layer),
@@ -145,16 +241,20 @@ def _validar(hit: GeocodeHit, p: ParsedAddress, ancora: CnefeCep | None,
         limite = max(float(ancora.raio_m), DIST_TOLERANCIA_MIN_M)
         checks.append(ValidationCheck(nome="distancia", ok=d <= limite,
                                       detalhe=f"{d / 1000:.1f} km (limite {limite / 1000:.1f} km)"))
+    confirma = _cnefe_confirma(hit, muni)
+    if confirma:
+        checks.append(confirma)
     return checks
 
 
 def _escolher(hits: list[GeocodeHit], p: ParsedAddress, ancora: CnefeCep | None,
-              municipio: str | None) -> tuple[GeocodeHit, list[ValidationCheck], int] | None:
+              municipio: str | None, muni: CnefeMunicipio | None = None
+              ) -> tuple[GeocodeHit, list[ValidationCheck], int] | None:
     """Prefere o hit que passa em tudo; se nenhum passa, devolve o que falha menos —
     o chamador decide se isso é bom o bastante pelo status."""
     melhor = None
     for hit in hits:
-        checks = _validar(hit, p, ancora, municipio)
+        checks = _validar(hit, p, ancora, municipio, muni)
         falhas = sum(1 for c in checks if not c.ok)
         if falhas == 0:
             return hit, checks, 0
@@ -194,6 +294,49 @@ def _aprovar(hit: GeocodeHit, checks: list[ValidationCheck], falhas: int) -> str
     return None
 
 
+def propor(text: str, *, item_id: str | None = None, limite: int = 6) -> ResolvedAddress:
+    """As opções reais para um texto lido, sem tocar na rede.
+
+    Depois do OCR são dezenas de endereços de uma vez; consultar ViaCEP e ORS para cada
+    um levaria minutos e gastaria cota para, no fim, oferecer ruas que podem não existir.
+    O cadastro local responde em milissegundos e só devolve o que existe.
+    """
+    avisos: list[str] = []
+    p = address_parser.parse_address(text)
+    out = ResolvedAddress(id=item_id or uuid.uuid4().hex[:8], status="nao_encontrado",
+                          label=text.strip(), parsed=p)
+
+    cep = normalizar_cep(p.cep)
+    ancora = cnefe.lookup(cep) if cep else None
+    if cep and ancora is None and cnefe.disponivel():
+        avisos.append("cep_fora_da_base")
+    if ancora and ancora.generico:
+        avisos.append("cep_generico")
+    out.cnefe = ancora
+
+    achados = _buscar_cnefe(p, ancora, None, limite)
+    out.options = [opcao_cnefe(a, i) for i, a in enumerate(achados)]
+    if achados:
+        melhor = achados[0]
+        out.status = _status_cnefe(melhor)
+        out.lat, out.lon, out.label, out.etapa = melhor.lat, melhor.lon, melhor.label, "cnefe"
+    elif ancora:
+        # A rua não foi reconhecida, mas o CEP existe: o centroide dele ao menos põe a
+        # parada no bairro certo enquanto o usuário confere.
+        out.status = "aproximado"
+        out.lat, out.lon, out.etapa = ancora.lat, ancora.lon, "centroide_cep"
+        out.label = address_parser.format_address(p) or out.label
+    elif cnefe.busca_por_rua():
+        # O modal trata os dois casos de formas opostas: sem cidade ele pergunta a
+        # cidade, porque existem milhares de "Rua São José" no país; com a cidade
+        # conhecida e a rua ausente, ele oferece o caminho de exceção.
+        conhecido = cnefe.resolver_municipio(cep=p.cep, municipio=p.localidade, uf=p.uf)
+        avisos.append("rua_fora_do_cadastro" if conhecido else "municipio_desconhecido")
+
+    out.avisos = avisos
+    return out
+
+
 def resolve(text: str, *, api_key: str, origin: tuple[float, float] | None = None,
             item_id: str | None = None) -> ResolvedAddress:
     avisos: list[str] = []
@@ -221,6 +364,26 @@ def resolve(text: str, *, api_key: str, origin: tuple[float, float] | None = Non
     if ancora and ancora.municipio and ancora.municipio.nome:
         municipio = municipio or ancora.municipio.nome
 
+    # O cadastro do IBGE responde primeiro. Quando ele reconhece a rua, o ORS não é
+    # consultado para escolher nada — no máximo para achar a casa dentro dela.
+    achados = _buscar_cnefe(p, ancora, municipio)
+    if achados:
+        melhor = achados[0]
+        out.options = [opcao_cnefe(a, i) for i, a in enumerate(achados)]
+        out.status = _status_cnefe(melhor)
+        out.lat, out.lon, out.label, out.etapa = melhor.lat, melhor.lon, melhor.label, "cnefe"
+        preciso = _refinar_no_ors(melhor, api_key)
+        if preciso:
+            out.lat, out.lon = preciso
+            out.etapa = "cnefe+ors"
+        out.avisos = avisos
+        return out
+
+    muni = cnefe.resolver_municipio(cod_ibge=ancora.cod_ibge if ancora else None,
+                                    cep=cep, municipio=municipio, uf=p.uf)
+    if muni is not None and p.logradouro and cnefe.busca_por_rua():
+        avisos.append("rua_fora_do_cadastro")
+
     vistos: set[tuple[float, float]] = set()
     alternativas: list[GeocodeHit] = []
     # O último degrau é o mais permissivo, então guardar "o resultado mais recente"
@@ -240,7 +403,7 @@ def resolve(text: str, *, api_key: str, origin: tuple[float, float] | None = Non
             if chave not in vistos:
                 vistos.add(chave)
                 alternativas.append(h)
-        escolha = _escolher(hits, p, ancora, municipio)
+        escolha = _escolher(hits, p, ancora, municipio, muni)
         if escolha is None:
             continue
         hit, checks, falhas = escolha
@@ -285,6 +448,8 @@ def resolve(text: str, *, api_key: str, origin: tuple[float, float] | None = Non
         elif sem_ancora or "cep_nao_verificado" in avisos:
             out.status = "provavel"
 
-    out.alternatives = alternativas[:8]
+    # Chegar aqui significa que o cadastro não reconheceu a rua. O que o geocoder achou
+    # entra como reserva, sempre marcada: é palpite, não confirmação.
+    out.options = [opcao_ors(h, i) for i, h in enumerate(alternativas[:8])]
     out.avisos = avisos
     return out

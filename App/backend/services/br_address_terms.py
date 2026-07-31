@@ -38,6 +38,34 @@ TIPOS_LOGRADOURO: dict[str, str] = {
     "servidao": "Servidão",
     "quadra": "Quadra",
     "setor": "Setor",
+    # O CNEFE cadastra 390 tipos e os de baixo respondem por ~480 mil logradouros. Sem
+    # eles o parser não achava tipo nenhum na linha, descartava o trecho inteiro — nome
+    # e número — e o endereço saía como inexistente. Ficam de fora "Vila", "Jardim" e
+    # companhia: são prefixo de bairro muito mais vezes que de logradouro.
+    "beco": "Beco",
+    "caminho": "Caminho",
+    "acesso": "Acesso",
+    "ramal": "Ramal",
+    "corrego": "Córrego",
+    "travessao": "Travessão",
+    "escadaria": "Escadaria",
+    "ruela": "Ruela",
+    "prolongamento": "Prolongamento",
+    "corredor": "Corredor",
+    "entrada": "Entrada",
+    "fazenda": "Fazenda",
+    "sitio": "Sítio",
+    "chacara": "Chácara",
+    "povoado": "Povoado",
+    "comunidade": "Comunidade",
+    "aldeia": "Aldeia",
+    "assentamento": "Assentamento",
+    "igarape": "Igarapé",
+    "engenho": "Engenho",
+    "granja": "Granja",
+    "estancia": "Estância",
+    "rancho": "Rancho",
+    "lugarejo": "Lugarejo",
 }
 
 # Prefixos que denotam bairro/loteamento, não tipo de logradouro.
@@ -112,9 +140,13 @@ _ABREVIACAO = re.compile(
     r"\b(" + "|".join(re.escape(a) for a in ABREVIACOES) + r")\.", re.IGNORECASE
 )
 
-_TIPO_ALTERNATIVAS = "|".join(
-    sorted((re.escape(t) for t in TIPOS_LOGRADOURO), key=len, reverse=True)
-)
+# As chaves do dicionário são sem acento, mas nota fiscal escreve "Praça" e "Sítio"
+# com ele; as duas grafias precisam entrar na alternação.
+_TIPO_ALTERNATIVAS = "|".join(sorted(
+    {re.escape(t) for t in TIPOS_LOGRADOURO}
+    | {re.escape(v.lower()) for v in TIPOS_LOGRADOURO.values()},
+    key=len, reverse=True,
+))
 # Casa "Av.", "AV", "Avenida" — mas não o começo de outra palavra ("Aveiro").
 TIPO_LOGRADOURO = re.compile(
     rf"(?<![0-9A-Za-zÀ-ú])({_TIPO_ALTERNATIVAS})\.?(?![0-9A-Za-zÀ-ú])", re.IGNORECASE

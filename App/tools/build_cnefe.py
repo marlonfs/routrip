@@ -1,7 +1,11 @@
 """Gera cnefe.sqlite a partir dos microdados do CNEFE/Censo 2022 do IBGE.
 
-Agrega ~220 milhões de endereços em ~1,2 milhão de CEPs, guardando centroide, raio
-e o logradouro/localidade/município predominantes. Uso:
+Duas agregações do mesmo passeio pelos CSVs:
+
+- por CEP, guardando centroide, raio e o logradouro/localidade/município predominantes;
+- por (município, logradouro), que é o que permite responder "esta rua existe?" antes
+  de propor um endereço ao usuário. Sem ela só dava para validar quem trouxesse CEP —
+  e 4.490 dos 5.570 municípios têm menos de cinco CEPs na base.
 
     python tools/build_cnefe.py --out backend/vendor/cnefe.sqlite
 
@@ -23,6 +27,10 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "backend"))
+
+from services import br_address_terms as termos  # noqa: E402
+
 FTP = ("https://ftp.ibge.gov.br/Cadastro_Nacional_de_Enderecos_para_Fins_Estatisticos"
        "/Censo_Demografico_2022/Arquivos_CNEFE/CSV/UF/")
 MUNICIPIOS_API = "https://servicodados.ibge.gov.br/api/v1/localidades/municipios"
@@ -34,7 +42,7 @@ UFS = [
 ]
 
 COLUNAS = ("CEP", "COD_MUNICIPIO", "DSC_LOCALIDADE", "NOM_TIPO_SEGLOGR",
-           "NOM_TITULO_SEGLOGR", "NOM_SEGLOGR", "LATITUDE", "LONGITUDE")
+           "NOM_TITULO_SEGLOGR", "NOM_SEGLOGR", "NUM_ENDERECO", "LATITUDE", "LONGITUDE")
 
 RAIO_MIN_M = 250.0
 RAIO_MAX_M = 5000.0
@@ -63,15 +71,14 @@ class Maioria:
             self.peso -= 1
 
 
-class Agregado:
-    __slots__ = ("n", "slat", "slon", "slat2", "slon2", "logradouro", "localidade", "municipio")
+class Nuvem:
+    """Centroide e dispersão de um conjunto de pontos sem guardar os pontos."""
+
+    __slots__ = ("n", "slat", "slon", "slat2", "slon2")
 
     def __init__(self) -> None:
         self.n = 0
         self.slat = self.slon = self.slat2 = self.slon2 = 0.0
-        self.logradouro = Maioria()
-        self.localidade = Maioria()
-        self.municipio = Maioria()
 
     def add(self, lat: float, lon: float) -> None:
         self.n += 1
@@ -84,8 +91,8 @@ class Agregado:
         return self.slat / self.n, self.slon / self.n
 
     def raio_bruto_m(self) -> float:
-        """2 desvios-padrão da nuvem de endereços do CEP. Cobre a rua inteira sem
-        inflar com o outlier de digitação que todo cadastro tem."""
+        """2 desvios-padrão da nuvem de endereços. Cobre a rua inteira sem inflar
+        com o outlier de digitação que todo cadastro tem."""
         if self.n < 2:
             return RAIO_MIN_M
         lat, lon = self.centroide()
@@ -94,6 +101,38 @@ class Agregado:
         dp_lat = math.sqrt(var_lat) * GRAU_EM_METROS
         dp_lon = math.sqrt(var_lon) * GRAU_EM_METROS * math.cos(math.radians(lat))
         return 2.0 * math.hypot(dp_lat, dp_lon)
+
+
+class Agregado(Nuvem):
+    __slots__ = ("logradouro", "localidade", "municipio")
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.logradouro = Maioria()
+        self.localidade = Maioria()
+        self.municipio = Maioria()
+
+
+class AgregadoLog(Nuvem):
+    """Um logradouro de um município. As pontas guardam onde ficam o menor e o maior
+    número encontrados, para interpolar a posição da casa procurada — o centroide
+    sozinho erra por quilômetros numa avenida longa."""
+
+    __slots__ = ("cep", "num_min", "num_max", "ponta_min", "ponta_max")
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.cep = Maioria()
+        self.num_min: int | None = None
+        self.num_max: int | None = None
+        self.ponta_min: tuple[float, float] | None = None
+        self.ponta_max: tuple[float, float] | None = None
+
+    def numerar(self, numero: int, lat: float, lon: float) -> None:
+        if self.num_min is None or numero < self.num_min:
+            self.num_min, self.ponta_min = numero, (lat, lon)
+        if self.num_max is None or numero > self.num_max:
+            self.num_max, self.ponta_max = numero, (lat, lon)
 
 
 def _baixar(nome: str, cache: Path | None) -> Path | None:
@@ -126,9 +165,23 @@ def _juntar_logradouro(tipo: str, titulo: str, nome: str) -> str:
     return " ".join(p for p in (tipo.strip(), titulo.strip(), nome.strip()) if p)
 
 
-def processar_uf(nome: str, dados: dict[str, Agregado], cache: Path | None) -> int:
+def _numero(bruto: str) -> int | None:
+    """Zero é como o CNEFE grava "sem número" — 83% das linhas do Acre — e seis dígitos
+    é sempre erro de cadastro. Os dois puxariam a ponta da rua para o lugar errado."""
+    bruto = bruto.strip()
+    if not bruto.isdigit() or len(bruto) > 5:
+        return None
+    return int(bruto) or None
+
+
+def processar_uf(nome: str, dados: dict[str, Agregado],
+                 logs: dict[tuple, AgregadoLog], tipos: dict[str, int],
+                 cache: Path | None) -> int:
     z, texto = _abrir_csv(nome, cache)
     linhas = 0
+    # Cada nome de rua reaparece dezenas de vezes no arquivo; normalizar é caro
+    # (NFKD char a char) e sem memoizar dominaria o tempo das 111 milhões de linhas.
+    normalizados: dict[str, str] = {}
     try:
         leitor = csv.reader(texto, delimiter=";")
         cabecalho = next(leitor)
@@ -136,25 +189,50 @@ def processar_uf(nome: str, dados: dict[str, Agregado], cache: Path | None) -> i
             idx = [cabecalho.index(c) for c in COLUNAS]
         except ValueError:
             raise SystemExit(f"{nome}: colunas esperadas ausentes. Lido: {cabecalho}")
-        i_cep, i_mun, i_loc, i_tipo, i_titulo, i_nome, i_lat, i_lon = idx
+        i_cep, i_mun, i_loc, i_tipo, i_titulo, i_nome, i_num, i_lat, i_lon = idx
 
         for row in leitor:
             linhas += 1
             try:
-                cep = row[i_cep]
-                if len(cep) != 8 or not cep.isdigit():
-                    continue
                 lat = float(row[i_lat])
                 lon = float(row[i_lon])
             except (IndexError, ValueError):
                 continue
-            ag = dados.get(cep)
-            if ag is None:
-                ag = dados[cep] = Agregado()
-            ag.add(lat, lon)
-            ag.municipio.add(row[i_mun])
-            ag.localidade.add(row[i_loc])
-            ag.logradouro.add(_juntar_logradouro(row[i_tipo], row[i_titulo], row[i_nome]))
+
+            cep = row[i_cep]
+            if len(cep) != 8 or not cep.isdigit():
+                cep = ""
+            if cep:
+                ag = dados.get(cep)
+                if ag is None:
+                    ag = dados[cep] = Agregado()
+                ag.add(lat, lon)
+                ag.municipio.add(row[i_mun])
+                ag.localidade.add(row[i_loc])
+                ag.logradouro.add(_juntar_logradouro(row[i_tipo], row[i_titulo], row[i_nome]))
+
+            # O logradouro entra mesmo sem CEP válido: na zona rural o cadastro vem
+            # sem CEP e a rua existe do mesmo jeito.
+            bruto = _juntar_logradouro("", row[i_titulo], row[i_nome])
+            via = normalizados.get(bruto)
+            if via is None:
+                via = normalizados[bruto] = termos.normalizar(bruto)
+            if not via:
+                continue
+            tipo = row[i_tipo].strip().upper()
+            id_tipo = tipos.get(tipo)
+            if id_tipo is None:
+                id_tipo = tipos[tipo] = len(tipos) + 1
+            chave = (row[i_mun], via, id_tipo)
+            lg = logs.get(chave)
+            if lg is None:
+                lg = logs[chave] = AgregadoLog()
+            lg.add(lat, lon)
+            if cep:
+                lg.cep.add(cep)
+            num = _numero(row[i_num])
+            if num is not None:
+                lg.numerar(num, lat, lon)
     finally:
         texto.close()
         z.close()
@@ -185,8 +263,7 @@ def nomes_de_municipio() -> dict[str, tuple[str, str]]:
     return saida
 
 
-def gravar(dados: dict[str, Agregado], destino: Path) -> None:
-    tmp = destino.with_suffix(".tmp")
+def criar_base(tmp: Path) -> sqlite3.Connection:
     tmp.unlink(missing_ok=True)
     con = sqlite3.connect(tmp)
     con.executescript("""
@@ -202,8 +279,63 @@ def gravar(dados: dict[str, Agregado], destino: Path) -> None:
             lat INTEGER, lon INTEGER, raio_m INTEGER, n_ceps INTEGER
         );
         CREATE TABLE meta (chave TEXT PRIMARY KEY, valor TEXT);
+        -- Sem rowid: a chave primária já ordena a tabela por município, que é como
+        -- toda consulta chega. Um índice à parte custaria 25 B por linha, 55 MB no
+        -- Brasil, para repetir o que a tabela já faz.
+        CREATE TABLE logradouro (
+            cod_ibge INTEGER, nome TEXT, tipo INTEGER,
+            n_end INTEGER, cep INTEGER, lat INTEGER, lon INTEGER, raio_m INTEGER,
+            num_min INTEGER, num_max INTEGER,
+            dlat_min INTEGER, dlon_min INTEGER, dlat_max INTEGER, dlon_max INTEGER,
+            PRIMARY KEY (cod_ibge, nome, tipo)
+        ) WITHOUT ROWID;
+        CREATE TABLE tipo_logradouro (id INTEGER PRIMARY KEY, nome TEXT);
     """)
+    return con
 
+
+def _pontas(lg: AgregadoLog, lat: float, lon: float, raio_m: float):
+    """Ponta que caiu longe do corpo da rua é número de casa errado no cadastro;
+    interpolar por ela mandaria a casa procurada para outro bairro. Como a faixa só
+    vale inteira, uma ponta ruim descarta as duas e sobra o centroide."""
+    cos = math.cos(math.radians(lat))
+    limite = max(1.5 * raio_m, 500.0)
+
+    def perto(p) -> bool:
+        return p is not None and math.hypot((p[0] - lat) * GRAU_EM_METROS,
+                                            (p[1] - lon) * GRAU_EM_METROS * cos) <= limite
+
+    if not (perto(lg.ponta_min) and perto(lg.ponta_max)):
+        return None, None, (lat, lon), (lat, lon)
+    return lg.num_min, lg.num_max, lg.ponta_min, lg.ponta_max
+
+
+def gravar_logradouros(con: sqlite3.Connection, logs: dict[tuple, AgregadoLog]) -> int:
+    """Chamado ao fim de cada UF: um município pertence a uma só UF, então a chave
+    nunca cruza arquivos e o acumulador pode ser esvaziado aqui."""
+    linhas = []
+    for (cod, via, tipo), lg in logs.items():
+        lat, lon = lg.centroide()
+        raio = min(RAIO_MAX_M, max(RAIO_MIN_M, lg.raio_bruto_m()))
+        num_min, num_max, p_min, p_max = _pontas(lg, lat, lon, raio)
+        linhas.append((
+            int(cod), via, tipo, lg.n,
+            int(lg.cep.valor) if lg.cep.valor else None,
+            round(lat * 1e6), round(lon * 1e6), round(raio),
+            num_min, num_max,
+            # Pontas como deslocamento do centroide: cabem em 2 ou 3 bytes de varint,
+            # contra 4 se fossem coordenadas absolutas.
+            round((p_min[0] - lat) * 1e6), round((p_min[1] - lon) * 1e6),
+            round((p_max[0] - lat) * 1e6), round((p_max[1] - lon) * 1e6),
+        ))
+    con.executemany(
+        "INSERT OR REPLACE INTO logradouro VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)", linhas)
+    con.commit()
+    return len(linhas)
+
+
+def gravar(con: sqlite3.Connection, dados: dict[str, Agregado],
+           tipos: dict[str, int], n_logradouros: int) -> None:
     por_municipio: dict[str, list[float]] = {}
     linhas = []
     for cep, ag in dados.items():
@@ -242,15 +374,24 @@ def gravar(dados: dict[str, Agregado], destino: Path) -> None:
         nome, uf = nomes.get(cod, (None, None))
         munis.append((cod, nome, uf, round(lat * 1e6), round(lon * 1e6), round(raio), int(n)))
     con.executemany("INSERT OR REPLACE INTO municipio VALUES (?,?,?,?,?,?,?)", munis)
+    con.executemany("INSERT OR REPLACE INTO tipo_logradouro VALUES (?,?)",
+                    [(i, nome) for nome, i in tipos.items()])
 
     con.executemany("INSERT OR REPLACE INTO meta VALUES (?,?)", [
         ("fonte", "IBGE CNEFE Censo 2022"),
         ("gerado_em", time.strftime("%Y-%m-%d")),
         ("n_ceps", str(len(linhas))),
         ("n_municipios", str(len(munis))),
+        ("n_logradouros", str(n_logradouros)),
+        # O backend recusa a busca por rua se não achar esta chave: uma base gerada
+        # antes do índice tem as tabelas do CEP idênticas e passaria despercebida.
+        ("versao_indice", "1"),
     ])
     con.execute("CREATE INDEX idx_cep_municipio ON cep(cod_ibge)")
     con.commit()
+
+
+def finalizar(con: sqlite3.Connection, tmp: Path, destino: Path) -> None:
     con.execute("VACUUM")
     con.close()
     destino.unlink(missing_ok=True)
@@ -271,19 +412,29 @@ def main() -> None:
     args.out.parent.mkdir(parents=True, exist_ok=True)
 
     dados: dict[str, Agregado] = {}
+    tipos: dict[str, int] = {}
+    n_logradouros = 0
+    tmp = args.out.with_suffix(".tmp")
+    con = criar_base(tmp)
     inicio = time.time()
     for i, uf in enumerate(args.ufs, 1):
         t = time.time()
-        n = processar_uf(uf, dados, args.cache)
+        # Os logradouros são descarregados a cada UF; só os CEPs atravessam o laço,
+        # porque um mesmo CEP genérico pode aparecer em mais de um estado.
+        logs: dict[tuple, AgregadoLog] = {}
+        n = processar_uf(uf, dados, logs, tipos, args.cache)
+        n_logradouros += gravar_logradouros(con, logs)
         print(f"[{i}/{len(args.ufs)}] {uf}: {n:>10,} linhas  "
-              f"{time.time() - t:6.1f}s  acumulado {len(dados):,} CEPs", flush=True)
+              f"{time.time() - t:6.1f}s  acumulado {len(dados):,} CEPs, "
+              f"{n_logradouros:,} logradouros", flush=True)
 
     if not dados:
         raise SystemExit("nenhum CEP agregado — verifique a fonte")
-    gravar(dados, args.out)
+    gravar(con, dados, tipos, n_logradouros)
+    finalizar(con, tmp, args.out)
     mb = args.out.stat().st_size / 1e6
-    print(f"OK {args.out} — {len(dados):,} CEPs, {mb:.1f} MB, "
-          f"{time.time() - inicio:.0f}s no total")
+    print(f"OK {args.out} — {len(dados):,} CEPs, {n_logradouros:,} logradouros, "
+          f"{mb:.1f} MB, {time.time() - inicio:.0f}s no total")
 
 
 if __name__ == "__main__":

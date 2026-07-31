@@ -5,6 +5,7 @@ import type {
   AppConfigResponse,
   GeocodeHit,
   OptimizeBy,
+  ResolvedAddress,
   RoutePlan,
   SpreadsheetPreview,
   Stop,
@@ -30,6 +31,9 @@ interface AppState {
   stops: Stop[];
 
   candidates: AddressCandidate[];
+  /** Uma proposta por candidato, na mesma ordem. Vem pronta da importação porque sai
+   * da base local: o modal já abre com endereços que existem no cadastro do IBGE. */
+  propostas: ResolvedAddress[];
   reviewOpen: boolean;
   importLoading: boolean;
   spreadsheet: SpreadsheetPreview | null;
@@ -127,6 +131,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   stops: [],
 
   candidates: [],
+  propostas: [],
   reviewOpen: false,
   importLoading: false,
   spreadsheet: null,
@@ -243,6 +248,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       importLoading: true,
       error: null,
       candidates: [],
+      propostas: [],
       reviewOpen: false,
       spreadsheet: null,
       spreadsheetQueue: spreadsheets,
@@ -252,11 +258,12 @@ export const useAppStore = create<AppState>((set, get) => ({
       const form = new FormData();
       documents.forEach((f) => form.append("files", f));
       try {
-        const result = await api<{ text: string; candidates: AddressCandidate[] }>(
-          "/api/ocr",
-          { method: "POST", body: form },
-        );
-        set({ candidates: result.candidates });
+        const result = await api<{
+          text: string;
+          candidates: AddressCandidate[];
+          propostas: ResolvedAddress[];
+        }>("/api/ocr", { method: "POST", body: form });
+        set({ candidates: result.candidates, propostas: result.propostas });
       } catch (e) {
         set({ error: (e as Error).message, importLoading: false, spreadsheetQueue: [] });
         return;
@@ -269,11 +276,14 @@ export const useAppStore = create<AppState>((set, get) => ({
     if (!get().requireOrigin()) return;
     set({ spreadsheet: null, importLoading: true });
     try {
-      const result = await postJson<{ candidates: AddressCandidate[] }>(
-        "/api/addresses/parse",
-        { lines },
-      );
-      set((st) => ({ candidates: [...st.candidates, ...result.candidates] }));
+      const result = await postJson<{
+        candidates: AddressCandidate[];
+        propostas: ResolvedAddress[];
+      }>("/api/addresses/parse", { lines });
+      set((st) => ({
+        candidates: [...st.candidates, ...result.candidates],
+        propostas: [...st.propostas, ...result.propostas],
+      }));
     } catch (e) {
       set({ error: (e as Error).message });
     }

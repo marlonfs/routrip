@@ -613,6 +613,52 @@ button:disabled {
   border-bottom: 1px solid var(--border, #e5e7eb);
 }
 
+.review-lido {
+  flex: 1;
+  font-size: 13px;
+  color: var(--primary-darker);
+}
+
+.review-opcao {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.review-opcao input[type="radio"] {
+  margin: 0;
+}
+
+.review-campos {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+  width: 100%;
+}
+
+.review-campos label {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+  color: var(--muted);
+  width: 110px;
+}
+
+.review-campos label.curto {
+  width: 56px;
+}
+
+.review-campos label.cresce {
+  flex: 1;
+  width: auto;
+  min-width: 160px;
+}
+
 .btn-link {
   background: none;
   border: none;
