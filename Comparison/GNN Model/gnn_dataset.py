@@ -1,7 +1,4 @@
 """
-Dataset PyTorch para o treino do GNN — adaptado de
-https://github.com/walidgeuttala/atsp (src/dataset/__init__.py).
-
 Cada instância (grafo TSP completo com 'weight' e 'regret' por aresta) é
 convertida no LINE GRAPH: cada aresta vira um nó, com feature = peso escalado
 e alvo = regret escalado. Como todas as instâncias de um mesmo tamanho têm a

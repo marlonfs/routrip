@@ -1,7 +1,4 @@
 """
-Algoritmos de construção e busca (Nearest-Neighbor guiado + Guided Local Search)
-— adaptados de https://github.com/walidgeuttala/atsp (src/algorithms.py).
-
 Única mudança em relação ao original: `tour_cost`/`tour_cost2` foram trazidos
 para este módulo (no repositório original viviam em utils/__init__.py, que
 puxa torch/lkh e outras dependências desnecessárias aqui).

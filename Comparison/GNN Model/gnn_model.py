@@ -1,6 +1,4 @@
 """
-Arquitetura do modelo GNN — adaptada de https://github.com/walidgeuttala/atsp (src/model.py).
-
 O modelo prediz, para cada aresta do grafo TSP (nó do line graph), o "regret":
 quanto o custo do tour ótimo piora se aquela aresta for forçada na solução.
 
