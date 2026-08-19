@@ -165,3 +165,7 @@ Claude, preciso que você, sempre que for, propor o endereço para o usuário se
   → Exceção explícita (Recomendado)
 ● O geocoder do OpenRouteService ainda deve aparecer nas propostas?1
   → Só como reserva marcada (Recomendado)
+
+3.5 Claude Opus 5 (xHigh)
+
+Claude, preciso melhorar a precisão dos endereços buscados, isso é, preciso que seja encontrada a coordenada da casa na rua, incluindo o número do terreno na pesquisa. No CNEFE existe essa separação por número também, por isso, inclua a busca de endereço com número.

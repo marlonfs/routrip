@@ -12,9 +12,17 @@ Por padrão o texto **não** inclui o CEP: incluí-lo daria ao caminho novo a â
 graça. `--com-cep` reproduz o romaneio real, onde o CEP costuma estar presente — vale
 para ler a distribuição de status, não a distância.
 
+**Ressalva que muda a leitura do número:** `--fonte-csv` sorteia linhas do próprio
+microdado, então o número procurado existe no cadastro por construção. O que ele mede,
+numa base v2, é o caso `exato` — o piso do erro. O caso que interessa medir de verdade é
+o número **ausente** do cadastro, e para isso existe `--modo-numeracao`, que faz
+leave-one-out sobre a tabela `numeracao`: esconde um número e manda a base deduzi-lo
+pelos dois vizinhos, exatamente como `cnefe.posicionar` faz em produção.
+
     python tools/eval_addresses.py --fonte-csv ../.cache-cnefe --amostra 300 --sem-rede
     python tools/eval_addresses.py --fonte-csv ../.cache-cnefe --amostra 300
     python tools/eval_addresses.py --gabarito meus_enderecos.csv   # texto;municipio
+    python tools/eval_addresses.py --modo-numeracao --amostra 20000
 """
 
 import argparse
@@ -101,10 +109,15 @@ def amostrar_csv(n: int, seed: int, cache: Path, ufs: list[str], com_cep: bool) 
             leitor = csv.reader(texto, delimiter=";")
             cabecalho = next(leitor)
             try:
-                idx = [cabecalho.index(c) for c in COLUNAS]
+                # Por nome, não por posição: `COLUNAS` cresce quando o build passa a ler
+                # mais do microdado, e um desempacotamento posicional quebra junto.
+                idx = {c: cabecalho.index(c) for c in COLUNAS}
             except ValueError:
                 raise SystemExit(f"{uf}: colunas esperadas ausentes. Lido: {cabecalho}")
-            i_cep, i_mun, i_loc, i_tipo, i_titulo, i_nome, i_num, i_lat, i_lon = idx
+            i_cep, i_mun, i_loc = idx["CEP"], idx["COD_MUNICIPIO"], idx["DSC_LOCALIDADE"]
+            i_tipo, i_titulo = idx["NOM_TIPO_SEGLOGR"], idx["NOM_TITULO_SEGLOGR"]
+            i_nome, i_num = idx["NOM_SEGLOGR"], idx["NUM_ENDERECO"]
+            i_lat, i_lon = idx["LATITUDE"], idx["LONGITUDE"]
             for row in leitor:
                 # Sem número não há casa para comparar; o que sobraria é o logradouro,
                 # que é justamente o que o índice agrega — gabarito do próprio índice.
@@ -222,6 +235,67 @@ class Braco:
                   ", ".join(f"{k}={v}" for k, v in sorted(self.status.items())))
 
 
+def _resumo(nome: str, erros: list[float]) -> None:
+    if not erros:
+        print(f"{nome:<22} sem casos")
+        return
+    q = statistics.quantiles(erros, n=100)
+    print(f"{nome:<22} mediana {statistics.median(erros):7.1f} m | p75 {q[74]:8.1f} | "
+          f"p90 {q[89]:9.1f} | <=25 m {100 * sum(1 for e in erros if e <= 25) / len(erros):4.1f}%")
+
+
+def avaliar_numeracao(n: int, seed: int) -> None:
+    """Leave-one-out sobre a numeração: esconde um número e mede a dedução.
+
+    É a única medida honesta do caso `vizinho`, que é o que acontece quando o entregador
+    procura um número que o recenseador não visitou. Sorteia só ruas com três números ou
+    mais e só posições interiores, porque fora da faixa a resposta é a ponta da rua, não
+    uma interpolação.
+    """
+    con = cnefe._conexao()
+    if con is None or not cnefe.tem_numeracao():
+        raise SystemExit("Este modo precisa de uma base com numeração (versao_indice 2).")
+    campos = ",".join(f"l.{c}" for c in cnefe._campos_log())
+    maior = con.execute("SELECT max(log_id) FROM numeracao").fetchone()[0]
+    rnd = random.Random(seed)
+    novo: list[float] = []
+    antigo_: list[float] = []
+    vistos: set[int] = set()
+    tentativas = 0
+    while len(novo) < n and tentativas < n * 20:
+        tentativas += 1
+        log_id = rnd.randint(1, maior)
+        if log_id in vistos:
+            continue
+        vistos.add(log_id)
+        row = con.execute(f"SELECT {campos} FROM logradouro l "
+                          "JOIN numeracao u ON u.log_id = l.id "
+                          "WHERE l.id = ? AND u.n >= 3", (log_id,)).fetchone()
+        if row is None:
+            continue
+        numeros, pontos = cnefe._numeros(row["id"], row["lat"], row["lon"])
+        j = rnd.randrange(1, len(numeros) - 1)
+        alvo, (vlat, vlon, _) = numeros[j], pontos[j]
+
+        # A mesma conta do ramo `vizinho` de `cnefe.posicionar`, com o número escondido:
+        # em via quilométrica a numeração não acompanha a geografia e o centroide vence.
+        if row["raio_m"] >= cnefe.RAIO_TETO_M:
+            dlat, dlon = row["lat"] / 1e6, row["lon"] / 1e6
+        else:
+            lat_a, lon_a, _ = pontos[j - 1]
+            lat_b, lon_b, _ = pontos[j + 1]
+            t = (alvo - numeros[j - 1]) / (numeros[j + 1] - numeros[j - 1])
+            dlat, dlon = lat_a + t * (lat_b - lat_a), lon_a + t * (lon_b - lon_a)
+        novo.append(cnefe.distancia_m(dlat, dlon, vlat, vlon))
+
+        ilat, ilon, _ = cnefe._interpolar(row, alvo)
+        antigo_.append(cnefe.distancia_m(ilat, ilon, vlat, vlon))
+
+    print(f"{len(novo)} números escondidos em {len(vistos)} ruas sorteadas\n")
+    _resumo("v1 (faixa da rua)", antigo_)
+    _resumo("v2 (dois vizinhos)", novo)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--amostra", type=int, default=25)
@@ -235,7 +309,20 @@ def main() -> None:
                     help="mede só a proposta local, sem gastar cota do ORS")
     ap.add_argument("--com-cep", action="store_true",
                     help="inclui o CEP no texto, como num romaneio real")
+    ap.add_argument("--modo-numeracao", action="store_true",
+                    help="leave-one-out sobre a numeração; mede o número que não está "
+                         "no cadastro, e só isso — ignora as demais opções")
+    ap.add_argument("--sem-numeracao", action="store_true",
+                    help="finge que a base é v1, para medir o antes e o depois no "
+                         "mesmo arquivo")
     args = ap.parse_args()
+
+    if args.modo_numeracao:
+        avaliar_numeracao(args.amostra, args.seed)
+        return
+    if args.sem_numeracao:
+        cnefe.FORCAR_V1 = True
+        cnefe.limpar_conexao()
 
     key = None if args.sem_rede else load_config().ors_api_key
     if not args.sem_rede and not key:

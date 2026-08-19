@@ -181,7 +181,8 @@ def parse_addresses(payload: AddressLines):
 @router.get("/cnefe/buscar")
 def cnefe_buscar(texto: str, municipio: str | None = None, uf: str | None = None,
                  cep: str | None = None, cod_ibge: str | None = None,
-                 numero: int | None = None):
+                 numero: int | None = None, focus_lat: float | None = None,
+                 focus_lon: float | None = None, limite: int = 10):
     """Busca manual do modal, para quando a leitura saiu ruim demais para casar sozinha."""
     if not cnefe.busca_por_rua():
         raise HTTPException(503, "A base do CNEFE instalada não tem o índice de ruas. "
@@ -190,25 +191,29 @@ def cnefe_buscar(texto: str, municipio: str | None = None, uf: str | None = None
         return {"opcoes": [], "municipio": None}
     muni = cnefe.resolver_municipio(cod_ibge=cod_ibge, cep=cep, municipio=municipio, uf=uf)
     if muni is None:
-        raise HTTPException(422, "Informe a cidade (e o estado) para procurar a rua.")
-    achados = cnefe.buscar_logradouro(texto, cod_ibge=muni.cod_ibge, numero=numero, limite=10)
+        if focus_lat is None or focus_lon is None:
+            raise HTTPException(422, "Informe a cidade (e o estado) para procurar a rua.")
+        achados = cnefe.buscar_perto(texto, focus_lat, focus_lon, numero=numero, limite=limite)
+    else:
+        achados = cnefe.buscar_logradouro(texto, cod_ibge=muni.cod_ibge, numero=numero,
+                                          limite=limite)
     # Mesmo formato das propostas da importação: o modal trata escolha manual e
     # automática pelo mesmo caminho.
     opcoes = [address_resolver.opcao_cnefe(a, i) for i, a in enumerate(achados)]
     return {"opcoes": opcoes, "municipio": muni}
 
 
-@router.get("/geocode/autocomplete")
-def autocomplete(text: str, focus_lat: float | None = None, focus_lon: float | None = None,
-                 layers: str | None = None):
-    if len(text.strip()) < 2:
+@router.get("/address/sugerir")
+def address_sugerir(texto: str, focus_lat: float | None = None,
+                    focus_lon: float | None = None, limite: int = 8):
+    """A caixa de busca do painel. Separada de `/cnefe/buscar` porque os contratos são
+    opostos: aqui não existe cidade informada, e faltar base ou chave tem de degradar a
+    qualidade da lista, nunca virar erro na cara de quem está digitando."""
+    if len(texto.strip()) < 3:
         return []
-    key = _require_key()
-    focus = (focus_lat, focus_lon) if focus_lat is not None and focus_lon is not None else None
-    try:
-        return ors_client.geocode_autocomplete(key, text, focus=focus, layers=layers)
-    except OrsError as exc:
-        raise _http_from_ors(exc)
+    foco = (focus_lat, focus_lon) if focus_lat is not None and focus_lon is not None else None
+    return address_resolver.sugerir(texto, foco=foco,
+                                    api_key=load_config().ors_api_key, limite=limite)
 
 
 @router.get("/geocode/search")

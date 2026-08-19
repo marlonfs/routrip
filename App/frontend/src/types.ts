@@ -68,6 +68,16 @@ export interface CepInfo {
   source: string;
 }
 
+/** O quanto a posição da casa vem do cadastro e o quanto é dedução. Quem decide é o
+ * servidor: só ele sabe se a base instalada guarda a coordenada de cada número. */
+export type NumeroStatus =
+  | "exato"
+  | "vizinho"
+  | "fora"
+  | "faixa"
+  | "sem_numeracao"
+  | "sem_numero";
+
 /** Endereço oferecido ao usuário. `fonte: "cnefe"` existe no cadastro do IBGE;
  * `fonte: "ors"` é palpite de geocoder e só aparece quando o CNEFE não achou nada. */
 export interface AddressOption {
@@ -80,11 +90,15 @@ export interface AddressOption {
   logradouro: string | null;
   numero: number | null;
   numero_confirmado: boolean;
+  numero_status: NumeroStatus;
+  num_antes: number | null;
+  num_depois: number | null;
   num_min: number | null;
   num_max: number | null;
   municipio: string | null;
   uf: string | null;
   cep: string | null;
+  distancia_m: number | null;
   similaridade: number;
 }
 
@@ -125,7 +139,9 @@ export interface CnefeStatus {
   n_ceps: number;
   n_municipios: number;
   n_logradouros: number;
+  n_numeros: number;
   busca_por_rua: boolean;
+  numeracao: boolean;
   caminho: string | null;
 }
 

@@ -157,10 +157,11 @@ def opcao_cnefe(a: CnefeLogradouro, i: int) -> AddressOption:
         id=f"c{i}", fonte="cnefe", confirmado=True, label=a.label, lat=a.lat, lon=a.lon,
         logradouro=f"{tipo} {a.nome.title()}".strip(),
         numero=a.numero, numero_confirmado=a.numero_confirmado,
+        numero_status=a.numero_status, num_antes=a.num_antes, num_depois=a.num_depois,
         num_min=a.num_min, num_max=a.num_max,
         municipio=a.municipio.nome if a.municipio else None,
         uf=a.municipio.uf if a.municipio else None,
-        cep=a.cep, similaridade=a.similaridade,
+        cep=a.cep, distancia_m=a.distancia_m, similaridade=a.similaridade,
     )
 
 
@@ -176,17 +177,21 @@ def opcao_ors(h: GeocodeHit, i: int) -> AddressOption:
 def _status_cnefe(a: CnefeLogradouro) -> ResolveStatus:
     if a.similaridade < SIM_CNEFE_AUTO:
         return "nao_verificado"
-    return "verificado" if a.numero_confirmado else "provavel"
+    return "verificado" if a.numero_status == "exato" else "provavel"
 
 
 def _refinar_no_ors(a: CnefeLogradouro, api_key: str) -> tuple[float, float] | None:
     """A rua já está decidida pelo cadastro; aqui só se tenta melhorar onde fica a casa.
 
-    Vale a chamada apenas quando o número está fora da faixa cadastrada — dentro dela a
-    interpolação já erra cerca de 35 m. Só aceita `layer=address` com número dentro do
-    raio da própria rua: qualquer coisa fora disso é outra via.
+    Não vale a chamada quando o cadastro já sabe onde a casa fica — nem no número exato,
+    nem entre dois vizinhos, que erram 21 m na mediana. Nesses casos o Pelias gastaria
+    cota para piorar: no Brasil ele devolve `layer=street`, o centroide da via, na maior
+    parte das vezes. Fica para quem está fora da faixa ou numa rua sem numeração.
+    Só aceita `layer=address` com número dentro do raio da própria rua: qualquer coisa
+    fora disso é outra via.
     """
-    if a.numero is None or a.numero_confirmado or a.municipio is None:
+    if (a.numero is None or a.municipio is None
+            or a.numero_status in ("exato", "vizinho")):
         return None
     rua = f"{(a.tipo or '').title()} {a.nome.title()}".strip()
     alvo = f"{rua}, {a.numero}, {a.municipio.nome} - {a.municipio.uf}"
@@ -292,6 +297,58 @@ def _aprovar(hit: GeocodeHit, checks: list[ValidationCheck], falhas: int) -> str
         # centenas de metros um do outro sem que nenhum esteja errado.
         return "provavel"
     return None
+
+
+def _repetido(h: GeocodeHit, opcoes: list[AddressOption]) -> bool:
+    """A mesma rua vinda do cadastro e do geocoder apareceria duas vezes na lista, uma
+    confirmada e outra não — o que parece ao usuário uma escolha entre dois endereços."""
+    rua = h.street or (h.label or "").split(",")[0]
+    cidade = h.locality or h.localadmin or h.county
+    return any(_similar(rua, o.logradouro) >= SIM_MUNICIPIO_MIN
+               and _similar(cidade, o.municipio) >= SIM_MUNICIPIO_MIN
+               for o in opcoes)
+
+
+def sugerir(texto: str, *, foco: tuple[float, float] | None = None,
+            api_key: str = "", limite: int = 8) -> list[AddressOption]:
+    """O que oferecer enquanto o usuário digita na caixa de busca do painel.
+
+    Diferente de `propor` em dois pontos: o texto vem de quem digita, não do OCR, então
+    o parser precisa tolerar "Alfredo Guedes 1500" sem vírgula nem "R."; e ninguém digita
+    a cidade numa caixa de busca, então o foco do mapa faz o papel dela. Cidade escrita
+    explicitamente ganha do foco.
+
+    Sem chave do ORS a busca continua respondendo: quem tem a base do IBGE instalada não
+    deveria depender da rede para encontrar um endereço.
+    """
+    p = address_parser.parse_busca(texto)
+    numero = _numero_int(p)
+    via = " ".join(x for x in (p.tipo_logradouro, p.logradouro) if x)
+
+    achados: list[CnefeLogradouro] = []
+    if via and cnefe.busca_por_rua():
+        muni = cnefe.resolver_municipio(cep=normalizar_cep(p.cep),
+                                        municipio=p.localidade, uf=p.uf)
+        if muni is not None:
+            achados = cnefe.buscar_logradouro(via, cod_ibge=muni.cod_ibge,
+                                              numero=numero, limite=limite)
+        elif foco is not None:
+            achados = cnefe.buscar_perto(via, foco[0], foco[1], numero=numero,
+                                         limite=limite)
+    opcoes = [opcao_cnefe(a, i) for i, a in enumerate(achados)]
+    if len(opcoes) >= limite or not api_key.strip():
+        return opcoes[:limite]
+
+    try:
+        hits = ors_client.geocode_autocomplete(api_key, texto, focus=foco)
+    except OrsError:
+        return opcoes
+    for i, h in enumerate(hits):
+        if len(opcoes) >= limite:
+            break
+        if not _repetido(h, opcoes):
+            opcoes.append(opcao_ors(h, i))
+    return opcoes
 
 
 def propor(text: str, *, item_id: str | None = None, limite: int = 6) -> ResolvedAddress:

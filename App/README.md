@@ -69,4 +69,5 @@ em Configurações. A chave fica salva em `%APPDATA%\Routrip\config.json`.
 ## Limites do plano gratuito do ORS
 
 - Matriz: ~50×50 locais por requisição → o app limita a **49 paradas + origem**
-- Geocodificação: 100 req/min — o autocomplete usa debounce e mínimo de 3 caracteres
+- Geocodificação: 100 req/min — a caixa de busca responde pelo cadastro local do IBGE
+  (CNEFE) e só recorre ao ORS quando o endereço não está lá, então digitar não gasta cota

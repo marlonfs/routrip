@@ -25,3 +25,6 @@ App/backend/vendor/tesseract/
 App/backend/vendor/cnefe.sqlite
 App/.cache-cnefe/
 App/.cache-cnefe.log
+# bases parciais de teste (ROUTRIP_CNEFE_DB aponta para elas)
+App/cnefe_*.sqlite
+App/cnefe_*.tmp

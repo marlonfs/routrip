@@ -153,6 +153,12 @@ body,
   color: var(--muted);
 }
 
+/* Precisa vencer o `.field small` acima, que é mais específico. */
+.field small.warn-text,
+.warn-text {
+  color: #92400e;
+}
+
 .row {
   display: flex;
   gap: 6px;
@@ -326,6 +332,12 @@ button:disabled {
 
 .hit-label {
   font-size: 13px;
+}
+
+.hit-badges {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .hit-actions {

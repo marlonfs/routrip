@@ -4,6 +4,7 @@ from difflib import SequenceMatcher
 
 from core.schemas import AddressCandidate, ParsedAddress
 from services import br_address_terms as termos
+from services import cnefe
 
 THRESHOLD = 0.3
 
@@ -154,6 +155,63 @@ def parse_address(text: str) -> ParsedAddress:
     if out.localidade and re.fullmatch(r"\d+", out.localidade):
         out.numero = out.numero or out.localidade
         out.localidade = None
+    return out
+
+
+def parse_busca(text: str) -> ParsedAddress:
+    """Texto digitado na caixa de busca do painel.
+
+    `parse_address` cobre o endereço escrito por extenso, mas se apoia em reconhecer o
+    tipo de logradouro: em "Alfredo Guedes 1500" — o jeito normal de digitar numa caixa
+    de busca — ele devolve todos os campos vazios e joga a linha inteira em `localidade`.
+    Aqui a leitura é do fim para o começo: sai a UF, sai a cidade (só se ela existir no
+    cadastro, senão "Rua Piracicaba" viraria cidade), sai o número, e o que sobra é a rua.
+    """
+    p = parse_address(text)
+    if p.logradouro:
+        return p
+
+    resto = _limpar(text)
+    out = ParsedAddress()
+    m = termos.CEP.search(resto)
+    if m:
+        out.cep = termos.formatar_cep(m)
+        resto = _cortar(resto, m.start(), m.end())
+    resto = _consumir_uf(resto, out)
+
+    segmentos = _segmentar(resto)
+    if len(segmentos) > 1 and cnefe.municipio_por_nome(segmentos[-1], out.uf):
+        out.localidade = segmentos.pop()
+    if out.localidade is None and out.uf and len(segmentos) == 1:
+        # Sem vírgula nenhuma a cidade fica colada na rua ("nossa senhora da penha 1506
+        # vitoria es"). Exigir a UF escrita é o que impede "Rua São Paulo" de perder o
+        # próprio nome para o município homônimo.
+        palavras = segmentos[0].split()
+        for n in (3, 2, 1):
+            sobra = " ".join(palavras[:-n])
+            m = termos.TIPO_LOGRADOURO.match(sobra)
+            # Se o que sobra é só "Rua", o nome da rua é que era o município.
+            if len(palavras) <= n or (m and not sobra[m.end():].strip(_LIXO)):
+                continue
+            if cnefe.municipio_por_nome(" ".join(palavras[-n:]), out.uf):
+                out.localidade = " ".join(palavras[-n:])
+                segmentos[0] = sobra
+                break
+    if len(segmentos) > 1 and re.fullmatch(r"\d{1,5}", segmentos[-1]):
+        out.numero = segmentos.pop()
+    if out.numero is None and segmentos:
+        # Exige espaço antes: "Rua 25" tem o número no começo e ele é parte do nome.
+        m = re.search(r"\s(?:n[ºo°.]?\s*)?(\d{1,5})$", segmentos[-1])
+        if m:
+            out.numero = m.group(1)
+            segmentos[-1] = segmentos[-1][:m.start()].strip(_LIXO)
+
+    via = " ".join(s for s in segmentos if s).strip(_LIXO)
+    m = termos.TIPO_LOGRADOURO.match(via)
+    if m:
+        out.tipo_logradouro = termos.expandir_tipo(m.group(1))
+        via = via[m.end():].strip(_LIXO)
+    out.logradouro = via or None
     return out
 
 

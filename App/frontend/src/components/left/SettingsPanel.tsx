@@ -111,6 +111,14 @@ export default function SettingsPanel() {
                 ? `Base ${cnefe.fonte}: ${cnefe.n_ceps.toLocaleString("pt-BR")} CEPs em ${cnefe.n_municipios.toLocaleString("pt-BR")} municípios.`
                 : "Base do IBGE não encontrada — a validação segue pelo CEP, com menos precisão."}
             </small>
+            {cnefe?.disponivel && (
+              <small className={cnefe.numeracao ? "muted" : "warn-text"}>
+                {cnefe.numeracao
+                  ? `${cnefe.n_numeros.toLocaleString("pt-BR")} números de casa com coordenada própria — o pino cai na porta.`
+                  : "Esta base não tem a numeração das casas: o número é estimado ao "
+                    + "longo da rua e erra cerca de 100 m. Atualize a base para corrigir."}
+              </small>
+            )}
           </label>
         </div>
       )}

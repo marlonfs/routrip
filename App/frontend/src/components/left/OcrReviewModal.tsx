@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { api, postJson } from "../../api/client";
+import { badgeNumero, rotuloParada } from "../../lib/endereco";
 import { newStopId, useAppStore } from "../../store/useAppStore";
 import type { AddressOption, CnefeBusca, ResolvedAddress } from "../../types";
 
@@ -32,23 +33,6 @@ const AVISO: Record<string, string> = {
 
 const MIN_BUSCA = 3;
 const ESPERA_MS = 250;
-
-function naFaixa(o: AddressOption, numero: string): boolean {
-  const n = Number(numero);
-  return (
-    o.num_min !== null && o.num_max !== null
-    && Number.isInteger(n) && n >= o.num_min && n <= o.num_max
-  );
-}
-
-/** "Rua X, Piracicaba - SP" com número vira "Rua X, 1500, Piracicaba - SP". */
-function rotuloParada(o: AddressOption, numero: string): string {
-  if (!numero.trim()) return o.label;
-  const corte = o.label.indexOf(",");
-  return corte < 0
-    ? `${o.label}, ${numero}`
-    : `${o.label.slice(0, corte)}, ${numero}${o.label.slice(corte)}`;
-}
 
 function faixa(o: AddressOption): string {
   if (o.num_min === null || o.num_max === null) return "";
@@ -207,8 +191,14 @@ export default function OcrReviewModal() {
                         <small className="muted">{faixa(o)}</small>
                       </span>
                       {o.confirmado ? (
-                        <span className={naFaixa(o, item.numero) ? "badge ok" : "badge ok soft"}>
-                          {naFaixa(o, item.numero) ? "número confere" : "rua no cadastro"}
+                        // Esmaecido enquanto a busca roda: o badge ainda descreve o
+                        // número anterior, e afirmar "nº no cadastro" sobre o número
+                        // que o usuário acabou de digitar seria mentira.
+                        <span
+                          className={badgeNumero(o).classe}
+                          style={item.ocupado ? { opacity: 0.4 } : undefined}
+                        >
+                          {badgeNumero(o).texto}
                         </span>
                       ) : (
                         <span className="badge warn">não confirmado</span>
