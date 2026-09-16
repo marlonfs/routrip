@@ -2,6 +2,9 @@
 __pycache__/
 *.py[cod]
 
+# macOS
+.DS_Store
+
 # Configuração local do Claude Code
 .claude/
 
@@ -11,3 +14,23 @@ Comparison/GNN Model/logs/
 
 # Excel
 *.xlsx
+
+# Ambientes virtuais e dependências
+.venv/
+venv/
+node_modules/
+
+# App — artefatos de build
+App/backend/static/
+App/backend/build/
+App/backend/dist/
+App/backend/vendor/tesseract/
+App/backend/vendor/cnefe.sqlite
+App/.cache-cnefe/
+App/.cache-cnefe.log
+# bases parciais de teste (ROUTRIP_CNEFE_DB aponta para elas)
+App/cnefe_*.sqlite
+App/cnefe_*.sqlite.bak
+App/cnefe_*.tmp
+App/parcial.sqlite
+App/*.sqlite.bak

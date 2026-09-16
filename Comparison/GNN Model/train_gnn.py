@@ -1,7 +1,4 @@
 """
-Treino do GNN de predição de regret — adaptado de
-https://github.com/walidgeuttala/atsp (src/train.py).
-
 Treina UM checkpoint por tamanho de instância (o dataset/line graph é
 homogêneo por tamanho, como no repositório original) e salva em:
     checkpoints/tsp{n}/checkpoint_best_val.pt   (melhor val loss)

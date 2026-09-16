@@ -1,8 +1,3 @@
-"""
-Operadores de busca local (2-opt e relocate) — copiados de
-https://github.com/walidgeuttala/atsp (src/utils/operators.py), sem alterações.
-"""
-
 import itertools
 import numpy as np
 

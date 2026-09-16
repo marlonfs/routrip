@@ -1,8 +1,4 @@
 """
-Geração do dataset de treino do GNN — adaptado de
-https://github.com/walidgeuttala/atsp (src/generate_instances.py,
-src/preprocess_dataset.py e dataset/set_labels).
-
 Para cada tamanho n, gera instâncias TSP com a MESMA distribuição do benchmark
 (matriz Euclidiana inteira, coordenadas em [0,1000]²), porém com seeds >= 10000
 para não vazar as seeds de teste (1..20) usadas em NewTSPs.py.

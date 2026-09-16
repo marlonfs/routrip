@@ -1,7 +1,4 @@
 """
-Solver GNN para o comparativo — inferência adaptada de
-https://github.com/walidgeuttala/atsp (src/test.py).
-
 Pipeline por instância (igual ao test.py original):
     1. Constrói o line graph da instância (cacheado por tamanho) e escala os
        pesos das arestas com os scalers do treino;
