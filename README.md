@@ -26,8 +26,10 @@ The proposed application integrates:
 - **GenAI models** — address interpretation and correction;
 - **OpenRouteService API** — generation of an asymmetric *from-to* distance matrix.
 
-The **Jonker & Volgenant** method converts the asymmetric matrix into a symmetric
-one, enabling **five algorithms** to be tested and compared.
+The research pipeline above is what powers **[RouTrip App](App/README.md)**, a
+Windows desktop application built on top of it: it extracts addresses from order
+sheets (OCR or spreadsheets), geocodes them, optimizes the visiting order with the
+LKH-3 ATSP solver, and exports the final route to Google Maps.
 
 ## Highlights
 
@@ -49,9 +51,6 @@ Order sheet  ──▶  Tesseract (OCR)  ──▶  GenAI (address interpretatio
                             OpenRouteService (asymmetric distance matrix)
                                               │
                                               ▼
-                        Jonker & Volgenant (asymmetric ──▶ symmetric)
-                                              │
-                                              ▼
                      Five algorithms tested & compared  ──▶  Optimized route
 ```
 
@@ -59,6 +58,7 @@ Order sheet  ──▶  Tesseract (OCR)  ──▶  GenAI (address interpretatio
 
 ```text
 routrip/
+├── App/                         # RouTrip desktop app (FastAPI backend + React/TypeScript frontend)
 ├── Comparison/
 │   ├── Algo comparison/        # Symmetric TSP benchmark (LKH3, OR-Tools, NN, ACO, Simplex)
 │   ├── New-Algo Comparison/    # Metaheuristic & learning benchmark (LKH3, ILS, ALNS, HGS, GNN)
@@ -69,7 +69,8 @@ routrip/
 └── README.md
 ```
 
-Each benchmark folder ships its own README with the detailed methodology:
+Each folder ships its own README with detailed instructions:
+[`App/README.md`](App/README.md) (desktop application setup, build, and distribution),
 [`Comparison/New-Algo Comparison/README.md`](Comparison/New-Algo%20Comparison/README.md)
 and [`Comparison/GNN Model/README.md`](Comparison/GNN%20Model/README.md).
 

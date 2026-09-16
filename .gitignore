@@ -2,6 +2,9 @@
 __pycache__/
 *.py[cod]
 
+# macOS
+.DS_Store
+
 # Configuração local do Claude Code
 .claude/
 
@@ -27,4 +30,7 @@ App/.cache-cnefe/
 App/.cache-cnefe.log
 # bases parciais de teste (ROUTRIP_CNEFE_DB aponta para elas)
 App/cnefe_*.sqlite
+App/cnefe_*.sqlite.bak
 App/cnefe_*.tmp
+App/parcial.sqlite
+App/*.sqlite.bak
