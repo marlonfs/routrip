@@ -5,6 +5,7 @@ from services.br_address_terms import expandir_abreviacoes as expand_abbreviatio
 
 BASE = "https://api.openrouteservice.org"
 TIMEOUT = httpx.Timeout(30.0, connect=10.0)
+MATRIX_MAX_ROUTES = 3500
 
 
 class OrsError(Exception):
@@ -125,11 +126,38 @@ def reverse_geocode(api_key: str, lat: float, lon: float) -> GeocodeHit | None:
 
 def matrix(api_key: str, coords_latlon: list[tuple[float, float]]) -> dict:
     """Matriz de durações (s) e distâncias (m). Entrada e saída em lat-lon;
-    a conversão para o lon-lat do ORS acontece somente aqui."""
+    a conversão para o lon-lat do ORS acontece somente aqui. O teto é de pares,
+    não de pontos: acima de MATRIX_MAX_ROUTES o ORS devolve o erro 6004, o que
+    limita a matriz completa a 59×59. Daí em diante ela é montada em blocos: faixas
+    de linhas contra todos os destinos e, se nem uma linha inteira couber (acima de
+    MATRIX_MAX_ROUTES pontos), também em faixas de colunas. Não há teto de pontos por
+    requisição — só de pares —, então o número de requisições cresce com n²."""
     locations = [[lon, lat] for lat, lon in coords_latlon]
+    n = len(locations)
     body = {"locations": locations, "metrics": ["duration", "distance"]}
-    data = _request("POST", "/v2/matrix/driving-car", api_key, json=body)
-    return {"durations": data["durations"], "distances": data["distances"]}
+    if n * n <= MATRIX_MAX_ROUTES:
+        data = _request("POST", "/v2/matrix/driving-car", api_key, json=body)
+        return {"durations": data["durations"], "distances": data["distances"]}
+
+    colunas = min(n, MATRIX_MAX_ROUTES)
+    linhas = max(1, MATRIX_MAX_ROUTES // colunas)
+    durations: list[list] = []
+    distances: list[list] = []
+    for inicio_l in range(0, n, linhas):
+        sources = list(range(inicio_l, min(inicio_l + linhas, n)))
+        faixa_dur: list[list] = [[] for _ in sources]
+        faixa_dis: list[list] = [[] for _ in sources]
+        for inicio_c in range(0, n, colunas):
+            pedido = {**body, "sources": sources}
+            if colunas < n:
+                pedido["destinations"] = list(range(inicio_c, min(inicio_c + colunas, n)))
+            data = _request("POST", "/v2/matrix/driving-car", api_key, json=pedido)
+            for k in range(len(sources)):
+                faixa_dur[k].extend(data["durations"][k])
+                faixa_dis[k].extend(data["distances"][k])
+        durations.extend(faixa_dur)
+        distances.extend(faixa_dis)
+    return {"durations": durations, "distances": distances}
 
 
 def _decode_polyline5(encoded: str) -> list[list[float]]:

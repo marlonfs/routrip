@@ -183,3 +183,5 @@ Claude, para melhorar a interpretabilidade do meu sistema, eu preciso trocar o s
 
 Durante a avaliação do script anterior, o Opus 5.5 encontrou um erro no parser, e não no OCR já que os dois erravam da mesma forma no mesmo exemplo. Ele ajustou onde era ancorado o início do endereço. Endereços são lidos corretamente, em alguns dos testes ele adicionava textos que não eram endereços também, mas como esses não são confirmados pelo CNEFE, são marcados para descarte.
 
+3.6 Claude Opus 5.5 (xHigh)
+Como podemos aumentar o limite de 50 paradas? Generalize para poder receber n paradas.

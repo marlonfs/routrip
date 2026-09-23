@@ -32,7 +32,7 @@ from services.eta import compute_etas
 from services.ors_client import OrsError
 
 APP_VERSION = "0.1.0"
-MAX_STOPS = 49
+MAX_STOPS = 100
 
 router = APIRouter()
 
@@ -303,7 +303,7 @@ def _get_matrix(key: str, coords: list[tuple[float, float]]) -> dict:
 @router.post("/route/solve")
 def solve_route(req: RouteSolveRequest):
     if len(req.stops) > MAX_STOPS:
-        raise HTTPException(400, f"Máximo de {MAX_STOPS} paradas por rota (limite da matriz do OpenRouteService).")
+        raise HTTPException(400, f"Máximo de {MAX_STOPS} paradas por rota.")
     key = _require_key()
 
     try:

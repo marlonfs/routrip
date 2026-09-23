@@ -68,6 +68,9 @@ em Configurações. A chave fica salva em `%APPDATA%\Routrip\config.json`.
 
 ## Limites do plano gratuito do ORS
 
-- Matriz: ~50×50 locais por requisição → o app limita a **49 paradas + origem**
+- Matriz: 3500 pares por requisição (acima disso o ORS devolve o erro 6004), ou seja
+  uma matriz completa de até 59×59. Passando disso, `ors_client.matrix()` monta a
+  matriz em faixas de linhas, e o app limita a **100 paradas + origem** — custa 3
+  requisições de matriz e 3 de direções por rota calculada
 - Geocodificação: 100 req/min — a caixa de busca responde pelo cadastro local do IBGE
   (CNEFE) e só recorre ao ORS quando o endereço não está lá, então digitar não gasta cota
