@@ -62,57 +62,55 @@ export default function AddressSearch() {
   };
 
   return (
-    <section className="card">
-      <div className="card-body search-box">
-        <input
-          type="text"
-          value={query}
-          placeholder="Buscar endereço (ex.: Alfredo Guedes 1500)"
-          onChange={(e) => setQuery(e.target.value)}
-        />
-        {loading && <small>Buscando...</small>}
-        {vazio && !loading && (
-          <small className="muted">
-            Nenhum endereço encontrado. Escreva a cidade junto para procurar fora da
-            região do mapa.
-          </small>
-        )}
-        {hits.length > 0 && (
-          <ul className="search-results">
-            {hits.map((o) => (
-              <li key={o.id}>
-                <span className="hit-label" title={o.label}>
-                  {rotuloParada(o, o.numero != null ? String(o.numero) : "")}
-                </span>
-                <div className="hit-badges">
-                  {o.confirmado ? (
-                    <span className={badgeNumero(o).classe}>{badgeNumero(o).texto}</span>
-                  ) : (
-                    <span className="badge warn">não confirmado</span>
-                  )}
-                  {distancia(o) && <small className="muted">{distancia(o)}</small>}
-                </div>
-                <div className="hit-actions">
-                  <button
-                    title={
-                      origin
-                        ? "Adicionar como parada"
-                        : "Defina o ponto de partida antes de adicionar paradas"
-                    }
-                    disabled={!origin}
-                    onClick={() => pick(o, false)}
-                  >
-                    + Parada
-                  </button>
-                  <button title="Definir como ponto de partida" onClick={() => pick(o, true)}>
-                    Partida
-                  </button>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </section>
+    <div className="search-box">
+      <input
+        type="text"
+        value={query}
+        placeholder="Buscar endereço (ex.: Alfredo Guedes 1500)"
+        onChange={(e) => setQuery(e.target.value)}
+      />
+      {loading && <small className="muted">Buscando...</small>}
+      {vazio && !loading && (
+        <small className="muted">
+          Nenhum endereço encontrado. Escreva a cidade junto para procurar fora da
+          região do mapa.
+        </small>
+      )}
+      {hits.length > 0 && (
+        <ul className="search-results">
+          {hits.map((o) => (
+            <li key={o.id}>
+              <span className="hit-label" title={o.label}>
+                {rotuloParada(o, o.numero != null ? String(o.numero) : "")}
+              </span>
+              <div className="hit-badges">
+                {o.confirmado ? (
+                  <span className={badgeNumero(o).classe}>{badgeNumero(o).texto}</span>
+                ) : (
+                  <span className="badge warn">não confirmado</span>
+                )}
+                {distancia(o) && <small className="muted">{distancia(o)}</small>}
+              </div>
+              <div className="hit-actions">
+                <button
+                  title={
+                    origin
+                      ? "Adicionar como parada"
+                      : "Defina o ponto de partida antes de adicionar paradas"
+                  }
+                  disabled={!origin}
+                  onClick={() => pick(o, false)}
+                >
+                  + Parada
+                </button>
+                <button title="Definir como ponto de partida" onClick={() => pick(o, true)}>
+                  Partida
+                </button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }

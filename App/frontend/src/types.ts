@@ -184,6 +184,5 @@ export interface AppConfigResponse {
   optimize_by: OptimizeBy;
   departure_time: string;
   stop_minutes: number;
-  validate_addresses: boolean;
   ocr_preprocess: boolean;
 }

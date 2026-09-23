@@ -14,30 +14,28 @@ export default function ImageUpload() {
   };
 
   return (
-    <section className="card">
-      <div className="card-body">
-        <button
-          className="btn-secondary full"
-          disabled={importLoading || !origin}
-          title={origin ? undefined : "Defina o ponto de partida antes de importar endereços"}
-          onClick={() => inputRef.current?.click()}
-        >
-          {importLoading ? "Lendo arquivos..." : "📎 Adicionar imagens ou arquivos"}
-        </button>
-        <small className="muted">
-          {origin
-            ? "Fotos e PDFs de notas/pedidos (OCR) ou planilhas com endereços (.xlsx / CSV)"
-            : "Defina o ponto de partida primeiro: ele orienta a busca dos endereços importados."}
-        </small>
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*,.pdf,.csv,.txt,.xlsx,.xlsm"
-          multiple
-          hidden
-          onChange={(e) => onFiles(e.target.files)}
-        />
-      </div>
-    </section>
+    <div className={origin ? "import-row" : "import-row disabled"}>
+      <span className="import-hint">
+        {origin
+          ? "Fotos e PDFs de notas/pedidos (OCR) ou planilhas com endereços (.xlsx / CSV)"
+          : "Defina o ponto de partida primeiro: ele orienta a busca dos endereços importados."}
+      </span>
+      <button
+        className="import-btn"
+        disabled={importLoading || !origin}
+        title={origin ? undefined : "Defina o ponto de partida antes de importar endereços"}
+        onClick={() => inputRef.current?.click()}
+      >
+        {importLoading ? "Lendo arquivos..." : "Adicionar arquivos"}
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*,.pdf,.csv,.txt,.xlsx,.xlsm"
+        multiple
+        hidden
+        onChange={(e) => onFiles(e.target.files)}
+      />
+    </div>
   );
 }

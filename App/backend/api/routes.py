@@ -1,4 +1,3 @@
-import uuid
 import webbrowser
 from datetime import date, datetime
 
@@ -44,7 +43,6 @@ class ConfigUpdate(BaseModel):
     optimize_by: str | None = None
     departure_time: str | None = None
     stop_minutes: int | None = None
-    validate_addresses: bool | None = None
     ocr_preprocess: bool | None = None
 
 
@@ -255,24 +253,8 @@ def resolve_address(payload: ResolveRequest):
     """Um endereço por chamada: a cascata custa 1–2 s e um lote de 40 viraria uma
     requisição de um minuto sem progresso nem cancelamento."""
     key = _require_key()
-    cfg = load_config()
     origin = ((payload.origin_lat, payload.origin_lon)
               if payload.origin_lat is not None and payload.origin_lon is not None else None)
-    if not cfg.validate_addresses:
-        try:
-            hits = ors_client.geocode_search(key, payload.text, focus=origin)
-        except OrsError as exc:
-            raise _http_from_ors(exc)
-        primeiro = hits[0] if hits else None
-        return ResolvedAddress(
-            id=payload.id or uuid.uuid4().hex[:8],
-            status="nao_verificado" if primeiro else "nao_encontrado",
-            label=primeiro.label if primeiro else payload.text,
-            lat=primeiro.lat if primeiro else None,
-            lon=primeiro.lon if primeiro else None,
-            hit=primeiro,
-            options=[address_resolver.opcao_ors(h, i) for i, h in enumerate(hits[:8])],
-        )
     try:
         return address_resolver.resolve(payload.text, api_key=key, origin=origin,
                                         item_id=payload.id)

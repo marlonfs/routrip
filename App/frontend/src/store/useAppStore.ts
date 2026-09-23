@@ -13,6 +13,10 @@ import type {
 
 const SPREADSHEET_RE = /\.(csv|txt|xlsx|xlsm|xls)$/i;
 
+/** As três telas do painel flutuante. `settings` cobre o painel inteiro, por isso
+ * guarda de onde veio para o botão de voltar devolver o usuário à aba certa. */
+export type PanelTab = "plan" | "route" | "settings";
+
 // ESALQ/USP, Piracicaba-SP — centro inicial do mapa
 export const INITIAL_CENTER: [number, number] = [-22.7089, -47.6328];
 export const INITIAL_ZOOM = 15;
@@ -23,6 +27,9 @@ export const newStopId = () =>
 
 interface AppState {
   config: AppConfigResponse | null;
+  tab: PanelTab;
+  prevTab: Exclude<PanelTab, "settings">;
+  confirmReset: boolean;
   optimizeBy: OptimizeBy;
   departureTime: string;
   stopMinutes: number;
@@ -45,6 +52,12 @@ interface AppState {
   mapCenter: [number, number];
   flyTarget: [number, number] | null;
   error: string | null;
+
+  setTab: (t: Exclude<PanelTab, "settings">) => void;
+  openSettings: () => void;
+  closeSettings: () => void;
+  setConfirmReset: (v: boolean) => void;
+  reset: () => void;
 
   loadConfig: () => Promise<void>;
   saveSettings: (update: Partial<AppConfigResponse> & { ors_api_key?: string }) => Promise<void>;
@@ -123,6 +136,9 @@ async function advanceImport(set: StoreSet, get: StoreGet) {
 
 export const useAppStore = create<AppState>((set, get) => ({
   config: null,
+  tab: "plan",
+  prevTab: "plan",
+  confirmReset: false,
   optimizeBy: "duration",
   departureTime: "08:00",
   stopMinutes: 10,
@@ -143,6 +159,27 @@ export const useAppStore = create<AppState>((set, get) => ({
   mapCenter: INITIAL_CENTER,
   flyTarget: null,
   error: null,
+
+  setTab: (t) => set({ tab: t, prevTab: t }),
+  openSettings: () => set({ tab: "settings" }),
+  closeSettings: () => set((st) => ({ tab: st.prevTab })),
+  setConfirmReset: (v) => set({ confirmReset: v }),
+
+  reset: () =>
+    set({
+      origin: null,
+      stops: [],
+      plan: null,
+      candidates: [],
+      propostas: [],
+      reviewOpen: false,
+      spreadsheet: null,
+      spreadsheetQueue: [],
+      error: null,
+      confirmReset: false,
+      tab: "plan",
+      prevTab: "plan",
+    }),
 
   loadConfig: async () => {
     try {
@@ -316,7 +353,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         stop_minutes: stopMinutes,
         want_geometry: true,
       });
-      set({ plan, solving: false });
+      set({ plan, solving: false, tab: "route", prevTab: "route" });
     } catch (e) {
       set({ error: (e as Error).message, solving: false });
     }

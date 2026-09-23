@@ -26,7 +26,7 @@ function EtaControls() {
 
   return (
     <div className="eta-controls">
-      <label className="field">
+      <label>
         <span>Hora de saída</span>
         <input
           type="time"
@@ -34,8 +34,8 @@ function EtaControls() {
           onChange={(e) => setDepartureTime(e.target.value)}
         />
       </label>
-      <label className="field">
-        <span>Minutos por parada</span>
+      <label>
+        <span>Min. por parada</span>
         <input
           type="number"
           min={0}
@@ -62,66 +62,44 @@ function GmapsButtons() {
   };
 
   return (
-    <div className="gmaps-buttons">
+    <>
       {plan.gmaps_urls.map((url, i) => (
-        <button key={i} className="btn-primary full" onClick={() => void open(url)}>
+        <button key={i} className="btn-primary grow" onClick={() => void open(url)}>
           {plan.gmaps_urls.length === 1
             ? "Abrir rota no Google Maps"
             : `Abrir no Google Maps (parte ${i + 1}/${plan.gmaps_urls.length})`}
         </button>
       ))}
-    </div>
+    </>
   );
 }
 
 export default function ItineraryPanel() {
   const plan = useAppStore((s) => s.plan);
   const origin = useAppStore((s) => s.origin);
+  const setConfirmReset = useAppStore((s) => s.setConfirmReset);
+  const stops = useAppStore((s) => s.stops);
 
   return (
-    <div className="itinerary">
+    <div className="view">
       <EtaControls />
+
       {!plan && (
-        <p className="muted">
-          Adicione o ponto de partida e as paradas, depois clique em
-          "Calcular rota" para ver a ordem otimizada e os horários.
+        <p className="it-empty">
+          Adicione o ponto de partida e as paradas, depois clique em “Calcular rota”
+          para ver a ordem otimizada e os horários.
         </p>
       )}
+
       {plan && (
         <>
           {plan.warnings.map((w, i) => (
             <p className="warning" key={i}>⚠ {w}</p>
           ))}
-          <div className="itinerary-list">
-            <div className="it-item origin">
-              <span className="dot origin-dot" />
-              <div className="it-info">
-                <span className="it-label" title={origin?.label}>{origin?.label ?? "Origem"}</span>
-                <small>Saída às {plan.departure_time}</small>
-              </div>
-            </div>
-            {plan.ordered_stops.map((ps) => (
-              <div className="it-item" key={ps.stop.id}>
-                <span className="dot stop-dot">{ps.order}</span>
-                <div className="it-info">
-                  <span className="it-label" title={ps.stop.label}>{ps.stop.label}</span>
-                  <small>
-                    Chegada {ps.eta} · Saída {ps.departs}
-                  </small>
-                </div>
-              </div>
-            ))}
-            <div className="it-item origin">
-              <span className="dot origin-dot" />
-              <div className="it-info">
-                <span className="it-label">Retorno à origem</span>
-                <small>Chegada às {plan.return_eta}</small>
-              </div>
-            </div>
-          </div>
+
           <div className="totals">
             <div>
-              <strong>{(plan.total_distance_m / 1000).toFixed(1)} km</strong>
+              <strong>{(plan.total_distance_m / 1000).toFixed(1).replace(".", ",")} km</strong>
               <small>distância total</small>
             </div>
             <div>
@@ -133,9 +111,51 @@ export default function ItineraryPanel() {
               <small>tempo total</small>
             </div>
           </div>
-          <GmapsButtons />
+
+          <div className="it-row it-head">
+            <span>#</span>
+            <span>Endereço</span>
+            <span className="it-time soft">Chegada</span>
+            <span className="it-time soft">Saída</span>
+          </div>
+
+          <div className="it-list">
+            <div className="it-row it-item origin">
+              <span className="dot origin-dot">P</span>
+              <span className="it-label" title={origin?.label}>
+                {origin?.label ?? "Origem"}
+              </span>
+              <span className="it-time soft">—</span>
+              <span className="it-time">{plan.departure_time}</span>
+            </div>
+            {plan.ordered_stops.map((ps) => (
+              <div className="it-row it-item" key={ps.stop.id}>
+                <span className="order-dot">{ps.order}</span>
+                <span className="it-label" title={ps.stop.label}>{ps.stop.label}</span>
+                <span className="it-time">{ps.eta}</span>
+                <span className="it-time soft">{ps.departs}</span>
+              </div>
+            ))}
+            <div className="it-row it-item origin">
+              <span className="dot origin-dot" />
+              <span className="it-label">Retorno à origem</span>
+              <span className="it-time">{plan.return_eta}</span>
+              <span className="it-time soft">—</span>
+            </div>
+          </div>
         </>
       )}
+
+      <div className="panel-foot">
+        <GmapsButtons />
+        <button
+          className="btn-ghost"
+          disabled={!origin && stops.length === 0 && !plan}
+          onClick={() => setConfirmReset(true)}
+        >
+          Limpar tudo
+        </button>
+      </div>
     </div>
   );
 }

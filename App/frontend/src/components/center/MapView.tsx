@@ -5,12 +5,21 @@ import {
   Marker,
   Polyline,
   TileLayer,
+  ZoomControl,
   useMap,
   useMapEvents,
 } from "react-leaflet";
 import { INITIAL_CENTER, INITIAL_ZOOM, useAppStore } from "../../store/useAppStore";
 
 const ROUTE_COLOR = "#A51C30";
+
+/** O painel flutuante cobre os 440px da esquerda (mais 16px de margem de cada
+ * lado): o enquadramento da rota tem de desviar dele, senão as primeiras paradas
+ * ficam escondidas atrás do painel. */
+const FIT_PADDING = {
+  paddingTopLeft: [488, 40] as [number, number],
+  paddingBottomRight: [40, 60] as [number, number],
+};
 
 interface ContextMenuState {
   x: number;
@@ -23,8 +32,8 @@ function pinIcon(content: string, kind: "origin" | "stop") {
   return L.divIcon({
     className: "",
     html: `<div class="pin pin-${kind}">${content}</div>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
+    iconSize: [24, 24],
+    iconAnchor: [12, 12],
   });
 }
 
@@ -84,7 +93,7 @@ function FitRoute() {
 
   useEffect(() => {
     if (plan?.geometry && plan.geometry.length > 1) {
-      map.fitBounds(L.latLngBounds(plan.geometry), { padding: [40, 40] });
+      map.fitBounds(L.latLngBounds(plan.geometry), FIT_PADDING);
     }
   }, [plan, map]);
   return null;
@@ -116,7 +125,13 @@ export default function MapView() {
 
   return (
     <>
-      <MapContainer center={INITIAL_CENTER} zoom={INITIAL_ZOOM} className="map">
+      <MapContainer
+        center={INITIAL_CENTER}
+        zoom={INITIAL_ZOOM}
+        className="map"
+        zoomControl={false}
+      >
+        <ZoomControl position="bottomright" />
         <TileLayer
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -155,10 +170,28 @@ export default function MapView() {
         ))}
 
         {plan?.geometry && (
-          <Polyline positions={plan.geometry} pathOptions={{ color: ROUTE_COLOR, weight: 4, opacity: 0.85 }} />
+          <>
+            <Polyline
+              positions={plan.geometry}
+              pathOptions={{ color: "#fff", weight: 9, opacity: 0.9, lineJoin: "round" }}
+            />
+            <Polyline
+              positions={plan.geometry}
+              pathOptions={{ color: ROUTE_COLOR, weight: 5, opacity: 0.85, lineJoin: "round" }}
+            />
+          </>
         )}
         {fallbackLine && (
-          <Polyline positions={fallbackLine} pathOptions={{ color: ROUTE_COLOR, weight: 3, dashArray: "8 8" }} />
+          <>
+            <Polyline
+              positions={fallbackLine}
+              pathOptions={{ color: "#fff", weight: 8, opacity: 0.9, lineJoin: "round" }}
+            />
+            <Polyline
+              positions={fallbackLine}
+              pathOptions={{ color: ROUTE_COLOR, weight: 4, opacity: 0.85, dashArray: "8 8" }}
+            />
+          </>
         )}
       </MapContainer>
 
