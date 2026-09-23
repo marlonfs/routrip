@@ -169,3 +169,17 @@ Claude, preciso que você, sempre que for, propor o endereço para o usuário se
 3.5 Claude Opus 5 (xHigh)
 
 Claude, preciso melhorar a precisão dos endereços buscados, isso é, preciso que seja encontrada a coordenada da casa na rua, incluindo o número do terreno na pesquisa. No CNEFE existe essa separação por número também, por isso, inclua a busca de endereço com número.
+
+3.6 Claude Opus 5.5 (xHigh)
+
+Claude, para melhorar a interpretabilidade do meu sistema, eu preciso trocar o sistema de OCR. Então, ao invés de utilizarmos o Tesseract, eu quero usar o RapidOCR. O intuito é que ele receba a imagem, consiga extrair todas as linhas e pegue os endereços. E aí, no sistema, você consegue ver que tem um regex já feito para identificar o que é endereço e o que não é. O que eu preciso mudar é a ferramenta de OCR, já que o Tesseract não está conseguindo puxar com uma qualidade satisfatória. Então, aplique esse novo sistema. com o intuito de melhorar o resultado a ser passado para o regex.
+
+ ● Qual motor de OCR adotar no lugar do Tesseract?
+   → RapidOCR + PP-OCRv5 (Recomendado)
+ ● Os 12,3 MB de modelos ONNX entram no repositório ou são baixados?
+   → Script de download (Recomendado)
+ │ ● Como validar que a qualidade realmente melhorou? Hoje não existe nenhuma imagem de teste nem teste de OCR no repositório.
+   → Script de comparação A/B de imagens
+
+Durante a avaliação do script anterior, o Opus 5.5 encontrou um erro no parser, e não no OCR já que os dois erravam da mesma forma no mesmo exemplo. Ele ajustou onde era ancorado o início do endereço. Endereços são lidos corretamente, em alguns dos testes ele adicionava textos que não eram endereços também, mas como esses não são confirmados pelo CNEFE, são marcados para descarte.
+

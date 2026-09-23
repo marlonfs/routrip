@@ -1,99 +1,171 @@
+r"""Motor de OCR: detecção + reconhecimento neural (PP-OCR) via onnxruntime.
+
+Substituiu o Tesseract, que não dava conta de foto de romaneio e nota fiscal. O contrato
+com o resto do aplicativo não mudou: entra imagem, sai uma string com uma linha por
+`\n`, pronta para `address_parser.extract_address_candidates`.
+"""
+
 import os
-import shutil
+import threading
 from io import BytesIO
 from pathlib import Path
 
-import pytesseract
-from PIL import Image, ImageOps
+from PIL import Image
 
 from core.config import load_config
-from core.paths import vendored_tesseract
-from services import address_parser, ocr_layout, ocr_preprocess
+from core.paths import resource_root, vendored_ocr_dir
+from services import ocr_layout, ocr_preprocess
 from services.ocr_layout import Word
 
+# Detecção e reconhecimento são estágios independentes, então a versão de cada um é
+# escolhida à parte. O reconhecedor `latin` cobre todo o português (inclusive maiúsculas
+# acentuadas) em 7,5 MB; o multilíngue do PP-OCRv6 lê igual e ocupa 20 MB.
+PRESETS: dict[str, dict[str, str]] = {
+    "latin": {
+        "det_version": "PP-OCRv6", "det_type": "small",
+        "rec_version": "PP-OCRv5", "rec_type": "mobile", "rec_lang": "latin",
+    },
+    "multi": {
+        "det_version": "PP-OCRv6", "det_type": "small",
+        "rec_version": "PP-OCRv6", "rec_type": "small", "rec_lang": "pt",
+    },
+}
+PRESET_PADRAO = "latin"
 
-def find_tesseract() -> str | None:
-    candidates: list[Path] = []
-    vendored = vendored_tesseract()
-    if vendored:
-        candidates.append(vendored)
-    which = shutil.which("tesseract")
-    if which:
-        candidates.append(Path(which))
-    candidates.append(Path(r"C:\Program Files\Tesseract-OCR\tesseract.exe"))
-    candidates.append(Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"))
-    for c in candidates:
-        if c.is_file():
-            return str(c)
-    return None
+# O padrão do RapidOCR (limit_type "min", 736) encolhe uma foto de A4 para ~736 px de
+# menor lado e apaga o texto miúdo do romaneio. Aqui o limite é o lado MAIOR, e mais alto.
+LIMITE_LADO = 1600
+# Abaixo do padrão (0.5): linha fraca de impressora matricial ou térmica desbotada ainda
+# interessa. Ruído extra é barato — o parser já descarta linha com menos de 6 caracteres.
+BOX_THRESH = 0.4
+TEXT_SCORE = 0.4
+# Abaixo disto a leitura é fraca o bastante para valer testar outra orientação: ~4 linhas
+# com score médio 0,8 já passa, e documento deitado fica muito longe disso.
+MIN_QUALIDADE = 320.0
+
+_lock = threading.Lock()
+_motores: dict[str, object] = {}
 
 
-def _configure(exe: str) -> None:
-    pytesseract.pytesseract.tesseract_cmd = exe
-    tessdata = Path(exe).parent / "tessdata"
-    if tessdata.is_dir():
-        os.environ["TESSDATA_PREFIX"] = str(tessdata)
+def preset_ativo() -> str:
+    nome = os.environ.get("ROUTRIP_OCR_PRESET", "").strip().lower()
+    return nome if nome in PRESETS else PRESET_PADRAO
 
 
-def _palavras(img: Image.Image, lang: str, psm: str) -> list[Word]:
-    dados = pytesseract.image_to_data(img, lang=lang, config=f"--psm {psm}",
-                                      output_type=pytesseract.Output.DICT)
+def _construir(preset: str, diretorio: Path):
+    from rapidocr import ModelType, OCRVersion, RapidOCR
+
+    p = PRESETS[preset]
+    return RapidOCR(params={
+        "Global.model_root_dir": str(diretorio),
+        "Global.text_score": TEXT_SCORE,
+        "Global.max_side_len": LIMITE_LADO,
+        "Global.log_level": "error",
+        "Det.ocr_version": OCRVersion(p["det_version"]),
+        "Det.model_type": ModelType(p["det_type"]),
+        "Det.lang_type": "pt",
+        "Det.limit_type": "max",
+        "Det.limit_side_len": LIMITE_LADO,
+        "Det.box_thresh": BOX_THRESH,
+        "Rec.ocr_version": OCRVersion(p["rec_version"]),
+        "Rec.model_type": ModelType(p["rec_type"]),
+        "Rec.lang_type": p["rec_lang"],
+    })
+
+
+def baixar_modelos(preset: str | None = None) -> Path:
+    """Passo de setup (scripts/get_ocr_models.ps1), não do aplicativo: construir o motor
+    apontando o destino faz o rapidocr baixar os ONNX e conferir o SHA256 do catálogo
+    dele. `_motor` não serve aqui porque recusa rodar justamente quando falta modelo."""
+    destino = resource_root() / "vendor" / "ocr"
+    destino.mkdir(parents=True, exist_ok=True)
+    _construir(preset or preset_ativo(), destino)
+    return destino
+
+
+def _motor(preset: str):
+    """Instância única por preset: carregar os três ONNX custa ~1 s e o endpoint do
+    FastAPI é síncrono, ou seja, roda em threadpool e entra aqui concorrentemente. A
+    sessão do onnxruntime é thread-safe para inferência, só a construção precisa do lock."""
+    motor = _motores.get(preset)
+    if motor is not None:
+        return motor
+
+    with _lock:
+        if preset in _motores:
+            return _motores[preset]
+
+        diretorio = vendored_ocr_dir()
+        if diretorio is None or not any(diretorio.glob("*.onnx")):
+            raise RuntimeError(
+                "Os modelos de OCR não foram encontrados na instalação do aplicativo. "
+                "Reinstale o Routrip."
+            )
+
+        motor = _construir(preset, diretorio)
+        _motores[preset] = motor
+        return motor
+
+
+def ler_palavras(img: Image.Image, preset: str | None = None) -> list[Word]:
+    """Uma `Word` por linha detectada. O PP-OCR já entrega a linha inteira reconhecida,
+    então a montagem em `ocr_layout` serve para fundir colunas lado a lado e manter a
+    ordem de leitura — o mesmo papel que tinha com as palavras soltas do Tesseract."""
+    resultado = _motor(preset or preset_ativo())(img)
+    caixas, textos, scores = resultado.boxes, resultado.txts, resultado.scores
+    if caixas is None or not textos:
+        return []
+
     palavras: list[Word] = []
-    for i, texto in enumerate(dados["text"]):
+    for caixa, texto, score in zip(caixas, textos, scores):
         if not texto.strip():
             continue
-        # `conf` vem como string em versões antigas do pytesseract e vale -1 nas
-        # regiões que o Tesseract classificou como não-texto.
-        try:
-            conf = float(dados["conf"][i])
-        except (TypeError, ValueError):
-            continue
-        if conf <= 0:
-            continue
-        palavras.append(Word(texto.strip(), conf, int(dados["left"][i]), int(dados["top"][i]),
-                             int(dados["width"][i]), int(dados["height"][i])))
+        xs = [float(p[0]) for p in caixa]
+        ys = [float(p[1]) for p in caixa]
+        esquerda, topo = min(xs), min(ys)
+        palavras.append(Word(
+            texto.strip(),
+            # O Tesseract dava confiança em 0-100 e `ocr_layout.confianca_media` ficou
+            # nessa escala; o PP-OCR devolve 0-1.
+            float(score) * 100.0,
+            int(esquerda), int(topo),
+            int(max(xs) - esquerda), int(max(ys) - topo),
+        ))
     return palavras
 
 
-def _pontuar(palavras: list[Word]) -> tuple[float, str]:
-    """Julga o PSM pelo que interessa a jusante — quantos endereços saem do texto — e
-    não pela confiança bruta. O psm 11 costuma ter confiança menor por ler também
-    carimbo e rodapé, e ainda assim extrair mais endereços de um romaneio."""
-    texto = "\n".join(ocr_layout.montar_linhas(palavras))
-    achados = len(address_parser.extract_address_candidates(texto))
-    return achados * ocr_layout.confianca_media(palavras), texto
+def _qualidade(palavras: list[Word]) -> float:
+    """Quanto texto legível saiu. Serve para comparar orientações, não para julgar a
+    imagem: uma foto deitada devolve poucas caixas e com score baixo."""
+    if not palavras:
+        return 0.0
+    return len(palavras) * (sum(p.conf for p in palavras) / len(palavras))
 
 
-def extract_text_from_image(img: Image.Image, lang: str = "por") -> str:
-    exe = find_tesseract()
-    if not exe:
-        raise RuntimeError(
-            "O componente de OCR (Tesseract) não foi encontrado na instalação do aplicativo. "
-            "Reinstale o Routrip."
-        )
-    _configure(exe)
-    cfg = load_config()
-    if cfg.ocr_preprocess:
-        img = ocr_preprocess.preprocess(img)
-    else:
-        img = ImageOps.autocontrast(ImageOps.grayscale(ImageOps.exif_transpose(img)))
+def _ler_orientando(img: Image.Image, preset: str) -> list[Word]:
+    """O Tesseract trazia OSD (`image_to_osd`) para descobrir foto deitada; sem ele, a
+    saída é comparar as leituras. Só vale pagar as passadas extras quando a primeira vem
+    fraca — o giro de 180° por linha o classificador de orientação já resolve sozinho."""
+    palavras = ler_palavras(img, preset)
+    if _qualidade(palavras) >= MIN_QUALIDADE:
+        return palavras
 
-    modos = ("6", "11") if cfg.ocr_psm_mode == "auto" else (cfg.ocr_psm_mode,)
-    melhor, melhor_score = "", -1.0
-    for psm in modos:
-        try:
-            palavras = _palavras(img, lang, psm)
-        except pytesseract.TesseractError:
-            if lang == "eng":
-                raise
-            # Idioma ausente no pacote: a troca vale para os modos seguintes também.
-            lang = "eng"
-            palavras = _palavras(img, lang, psm)
-        score, texto = _pontuar(palavras)
-        if score > melhor_score:
-            melhor, melhor_score = texto, score
+    melhor, melhor_q = palavras, _qualidade(palavras)
+    for graus in (90, 270):
+        tentativa = ler_palavras(img.rotate(graus, expand=True), preset)
+        q = _qualidade(tentativa)
+        if q > melhor_q:
+            melhor, melhor_q = tentativa, q
     return melhor
 
 
-def extract_text(image_bytes: bytes, lang: str = "por") -> str:
-    return extract_text_from_image(Image.open(BytesIO(image_bytes)), lang=lang)
+def extract_text_from_image(img: Image.Image) -> str:
+    cfg = load_config()
+    preset = preset_ativo()
+    img = ocr_preprocess.preprocess(img) if cfg.ocr_preprocess else ocr_preprocess.endireitar(img)
+    linhas = ocr_layout.montar_linhas(_ler_orientando(img, preset))
+    return "\n".join(linhas)
+
+
+def extract_text(image_bytes: bytes) -> str:
+    return extract_text_from_image(Image.open(BytesIO(image_bytes)))

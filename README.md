@@ -22,7 +22,7 @@ building a functional application for **last-mile deliveries**.
 
 The proposed application integrates:
 
-- **Tesseract** — address extraction (OCR) from order sheets;
+- **PP-OCR (RapidOCR/ONNX)** — address extraction (OCR) from order sheets;
 - **GenAI models** — address interpretation and correction;
 - **OpenRouteService API** — generation of an asymmetric *from-to* distance matrix.
 
@@ -45,7 +45,7 @@ LKH-3 ATSP solver, and exports the final route to Google Maps.
 ## Processing pipeline
 
 ```text
-Order sheet  ──▶  Tesseract (OCR)  ──▶  GenAI (address interpretation & correction)
+Order sheet  ──▶  PP-OCR (OCR)  ──▶  GenAI (address interpretation & correction)
                                               │
                                               ▼
                             OpenRouteService (asymmetric distance matrix)

@@ -2,7 +2,7 @@ import pypdfium2 as pdfium
 
 from services import ocr
 
-# ~165 dpi: resolução suficiente para o Tesseract ler notas fiscais rasterizadas
+# ~165 dpi: resolução suficiente para o OCR ler notas fiscais rasterizadas
 RENDER_SCALE = 2.3
 MIN_NATIVE_CHARS = 40
 
@@ -11,7 +11,7 @@ def _has_text_layer(text: str) -> bool:
     return sum(ch.isalnum() for ch in text) >= MIN_NATIVE_CHARS
 
 
-def extract_text(content: bytes, lang: str = "por") -> str:
+def extract_text(content: bytes) -> str:
     try:
         doc = pdfium.PdfDocument(content)
     except pdfium.PdfiumError as exc:
@@ -28,7 +28,7 @@ def extract_text(content: bytes, lang: str = "por") -> str:
                 pages.append(native)
             else:
                 pages.append(
-                    ocr.extract_text_from_image(page.render(scale=RENDER_SCALE).to_pil(), lang=lang)
+                    ocr.extract_text_from_image(page.render(scale=RENDER_SCALE).to_pil())
                 )
         return "\n".join(pages)
     finally:

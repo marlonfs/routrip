@@ -46,7 +46,6 @@ class ConfigUpdate(BaseModel):
     stop_minutes: int | None = None
     validate_addresses: bool | None = None
     ocr_preprocess: bool | None = None
-    ocr_psm_mode: str | None = None
 
 
 class ApiKeyPayload(BaseModel):

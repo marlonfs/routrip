@@ -16,6 +16,11 @@ _NUMERO = re.compile(r"(?i)(?:,\s*|\bn[ºo°.]?\s*|\bnumero\s*|\s)(\d{1,6})\b")
 _UF_SIGLA = re.compile(
     r"(?i)(?:^|[\s,;/-])(" + "|".join(termos.UF_SIGLAS) + r")(?![0-9A-Za-zÀ-ú])"
 )
+# Orçamento e nota fiscal rotulam assim a linha de entrega. O rótulo precisa virar
+# separador, e não só sumir: colado no começo do segmento ele esconde o tipo do
+# logradouro de `TIPO_LOGRADOURO.match`, que ancora no início — e aí
+# "Endereço: Avenida de Cillo, 2110" sai sem logradouro e sem número.
+_ROTULO_ENDERECO = re.compile(r"(?i)\b(endere[çc]o|end)\.?\s*:\s*")
 _ROTULO_BAIRRO = re.compile(r"(?i)\bbairro\s*:?\s*")
 _ROTULO_CIDADE = re.compile(r"(?i)\b(cidade|munic[íi]pio|localidade)\s*:?\s*")
 _ROTULO_CEP = re.compile(r"(?i)\bcep\s*:?\s*")
@@ -77,10 +82,26 @@ def _consumir_uf(resto: str, out: ParsedAddress) -> str:
     return resto
 
 
+def _via_plausivel(nome: str) -> bool:
+    """Descarta o que tem forma de código de formulário, não de nome de logradouro.
+
+    Dois casos reais de orçamento: "Setor: 7/0" — `Setor` é tipo de logradouro de
+    verdade (Brasília), mas `7/0` é código de rota; e "S U P O R T E", em que o `R`
+    solto do texto espaçado vira a abreviação de `Rua`. Nome só com dígitos e sem
+    barra continua passando: "Rua 7" e "Avenida 85" existem em Goiânia.
+    """
+    if not nome:
+        return True
+    if "/" in nome and not re.search(r"[A-Za-zÀ-ú]", nome):
+        return False
+    tokens = nome.split()
+    return not (len(tokens) >= 3 and all(len(t) == 1 for t in tokens))
+
+
 def parse_address(text: str) -> ParsedAddress:
     """Extrai campos por consumo-e-remoção: cada campo encontrado sai do texto para
     não competir com os seguintes."""
-    resto = _limpar(text)
+    resto = _ROTULO_ENDERECO.sub(" , ", _limpar(text))
     out = ParsedAddress()
 
     m = termos.CEP.search(resto)
@@ -110,13 +131,18 @@ def parse_address(text: str) -> ParsedAddress:
         m = termos.TIPO_LOGRADOURO.match(seg)
         if not m:
             continue
-        out.tipo_logradouro = termos.expandir_tipo(m.group(1))
         nome = seg[m.end():].strip(_LIXO)
         num = _NUMERO.search(nome)
+        numero = sobra = None
         if num:
-            out.numero = num.group(1)
+            numero = num.group(1)
             sobra = nome[num.end():].strip(_LIXO)
             nome = nome[:num.start()].strip(_LIXO)
+        if not _via_plausivel(nome):
+            continue
+        out.tipo_logradouro = termos.expandir_tipo(m.group(1))
+        if numero:
+            out.numero = numero
             if sobra:
                 segmentos.insert(i + 1, sobra)
         out.logradouro = nome or None

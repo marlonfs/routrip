@@ -186,5 +186,4 @@ export interface AppConfigResponse {
   stop_minutes: number;
   validate_addresses: boolean;
   ocr_preprocess: boolean;
-  ocr_psm_mode: "auto" | "6" | "11";
 }

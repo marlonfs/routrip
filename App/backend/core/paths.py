@@ -20,9 +20,9 @@ def static_dir() -> Path:
     return resource_root() / "static"
 
 
-def vendored_tesseract() -> Path | None:
-    exe = resource_root() / "vendor" / "tesseract" / "tesseract.exe"
-    return exe if exe.is_file() else None
+def vendored_ocr_dir() -> Path | None:
+    d = resource_root() / "vendor" / "ocr"
+    return d if d.is_dir() else None
 
 
 def cnefe_db() -> Path | None:

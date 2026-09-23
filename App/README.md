@@ -11,7 +11,7 @@ final para o Google Maps.
 - **Frontend**: React + TypeScript (Vite), servido pelo próprio backend em produção
 - **Janela nativa**: pywebview (WebView2)
 - **Solver**: `vendor/LKH.exe` (LKH-3.0.14) via arquivos TSPLIB `TYPE: ATSP`
-- **OCR**: PyTesseract com Tesseract vendorizado em `vendor/tesseract`
+- **OCR**: RapidOCR (PP-OCR em ONNX, via onnxruntime) com os modelos em `vendor/ocr`; roda in-process, sem binário externo
 - **PDF**: pypdfium2 — usa a camada de texto quando existe e rasteriza a página para OCR quando o PDF é escaneado
 
 ## Requisitos de desenvolvimento
@@ -25,8 +25,8 @@ cd App
 python -m venv .venv
 .venv\Scripts\pip install -r backend\requirements.txt
 cd frontend; npm install; cd ..
-# opcional (embute o OCR na distribuição):
-powershell -ExecutionPolicy Bypass -File scripts\get_tesseract.ps1
+# baixa os modelos de OCR (necessário para ler imagens):
+powershell -ExecutionPolicy Bypass -File scripts\get_ocr_models.ps1
 ```
 
 ## Desenvolvimento

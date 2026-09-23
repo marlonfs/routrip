@@ -1,8 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from PyInstaller.utils.hooks import collect_data_files
+
 datas = [
     ("static", "static"),
+    # Inclui vendor/ocr (modelos .onnx) e vendor/LKH.exe.
     ("vendor", "vendor"),
+    # config.yaml e default_models.yaml, que o rapidocr lê do próprio pacote. Só os
+    # YAML: o pacote também guarda em models/ um cache dos .onnx que ele já baixou
+    # alguma vez, e levá-lo duplicaria dezenas de MB do que vendor/ocr já traz.
+    *[(src, dst) for src, dst in collect_data_files("rapidocr") if src.endswith(".yaml")],
 ]
 
 hiddenimports = [
@@ -22,6 +29,8 @@ hiddenimports = [
     # empacotamento degrade o OCR em vez de derrubar o aplicativo.
     "cv2",
     "numpy",
+    "onnxruntime",
+    "rapidocr",
 ]
 
 a = Analysis(

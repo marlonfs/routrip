@@ -1,8 +1,8 @@
-"""Pré-processamento de imagem antes do OCR: upscale, deskew e binarização.
+"""Correção geométrica antes do OCR.
 
-O OpenCV é importado dentro das funções e toda falha degrada para o caminho só-PIL.
-Empacotamento quebrado deve piorar o OCR, não derrubar o aplicativo — mesmo critério
-já usado em find_tesseract().
+Não binariza: o PP-OCR é uma rede treinada em imagem colorida e usa gradiente e
+contraste como sinal, ao contrário do Tesseract, que trabalhava sobre um limiar. Aqui
+o trabalho é só deixar o texto na horizontal e grande o bastante.
 """
 
 from PIL import Image, ImageOps
@@ -11,16 +11,17 @@ LADO_MENOR_ALVO = 1600
 LADO_MAIOR_TETO = 4000
 ANGULO_MAX = 7.0
 PASSO_ANGULO = 0.5
-# Abaixo disto o fundo é uniforme e o Otsu interno do Tesseract 5 lê melhor o cinza
-# do que qualquer binarização nossa. Acima, há sombra ou iluminação irregular.
-DESVIO_FUNDO_LIMIAR = 18.0
 
 
 def _cv2():
     import cv2
     import numpy as np
-
     return cv2, np
+
+
+def endireitar(img: Image.Image) -> Image.Image:
+    """Só a rotação que a câmera registrou no EXIF, sem tocar no conteúdo."""
+    return ImageOps.exif_transpose(img).convert("RGB")
 
 
 def _upscale(img: Image.Image) -> Image.Image:
@@ -58,44 +59,23 @@ def _angulo_por_projecao(arr, cv2, np) -> float:
     return melhor_angulo
 
 
-def _rotacao_grosseira(img: Image.Image) -> Image.Image:
-    """90/180/270 pelo OSD do Tesseract; o projection profile só resolve inclinações
-    pequenas e daria resultado sem sentido numa foto deitada."""
-    import pytesseract
-
-    try:
-        osd = pytesseract.image_to_osd(img, output_type=pytesseract.Output.DICT)
-        graus = int(osd.get("rotate", 0)) % 360
-    except Exception:
-        return img
-    if graus in (90, 180, 270):
-        return img.rotate(-graus, expand=True)
-    return img
-
-
 def preprocess(img: Image.Image) -> Image.Image:
-    img = ImageOps.exif_transpose(img)
-    img = _rotacao_grosseira(img)
-    img = ImageOps.grayscale(img)
-    img = _upscale(img)
+    img = _upscale(endireitar(img))
 
     try:
         cv2, np = _cv2()
     except ImportError:
-        return ImageOps.autocontrast(img)
+        return img
 
     arr = np.array(img)
-    angulo = _angulo_por_projecao(arr, cv2, np)
-    if abs(angulo) >= PASSO_ANGULO:
-        altura, largura = arr.shape
-        m = cv2.getRotationMatrix2D((largura / 2, altura / 2), angulo, 1.0)
-        arr = cv2.warpAffine(arr, m, (largura, altura), flags=cv2.INTER_CUBIC,
-                             borderMode=cv2.BORDER_REPLICATE)
+    # O ângulo é medido no cinza, mas a rotação é aplicada na imagem colorida: o
+    # reconhecedor recebe a cor original.
+    angulo = _angulo_por_projecao(cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY), cv2, np)
+    if abs(angulo) < PASSO_ANGULO:
+        return img
 
-    fundo = cv2.GaussianBlur(arr, (0, 0), sigmaX=max(arr.shape) / 30)
-    if float(np.std(fundo)) > DESVIO_FUNDO_LIMIAR:
-        arr = cv2.adaptiveThreshold(arr, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                    cv2.THRESH_BINARY, 31, 15)
-    else:
-        arr = cv2.normalize(arr, None, 0, 255, cv2.NORM_MINMAX)
+    altura, largura = arr.shape[:2]
+    m = cv2.getRotationMatrix2D((largura / 2, altura / 2), angulo, 1.0)
+    arr = cv2.warpAffine(arr, m, (largura, altura), flags=cv2.INTER_CUBIC,
+                         borderMode=cv2.BORDER_REPLICATE)
     return Image.fromarray(arr)

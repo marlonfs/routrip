@@ -106,7 +106,9 @@ MARCADORES_ORIGEM = re.compile(
 )
 
 # Sequências que nunca fazem parte de um endereço e atrapalham a extração do CEP
-# e do número (o CNPJ e a chave da NF-e são os piores ofensores).
+# e do número (o CNPJ e a chave da NF-e são os piores ofensores). A referência de
+# produto entra aqui porque tem oito dígitos e o regex de CEP a engole: "REF 10270017"
+# virava o CEP 10270-017 e a linha do item virava endereço.
 DESCARTAVEIS = re.compile(
     r"\d{2}\.?\d{3}\.?\d{3}/\d{4}-?\d{2}"          # CNPJ
     r"|(?<!\d)\d{3}\.\d{3}\.\d{3}-\d{2}(?!\d)"     # CPF
@@ -115,6 +117,7 @@ DESCARTAVEIS = re.compile(
     r"|R\$\s?[\d.,]+"                              # valores
     r"|(?<!\d)\d{2}/\d{2}/\d{2,4}(?!\d)"           # datas
     r"|\b\d{2}:\d{2}(?::\d{2})?\b"                 # horas
+    r"|\b[Rr][Ee][Ff]\.?\s*\d[\d./-]*"             # código de produto
 )
 
 RUIDO = re.compile(r"[|_~•■□®°*]+")

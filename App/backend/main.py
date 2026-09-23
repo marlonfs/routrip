@@ -13,8 +13,9 @@ from api.routes import router
 from core.paths import static_dir
 
 if sys.platform == "win32" and getattr(sys, "frozen", False):
-    # Sem console próprio (console=False), subprocessos herdados (ex. pytesseract)
-    # abririam janelas de console piscando; força CREATE_NO_WINDOW em todos.
+    # Sem console próprio (console=False), qualquer subprocesso abriria uma janela de
+    # console piscando; força CREATE_NO_WINDOW em todos. O OCR hoje roda in-process,
+    # mas a proteção continua valendo para os demais.
     _orig_popen_init = subprocess.Popen.__init__
 
     def _no_window_init(self, *args, **kwargs):

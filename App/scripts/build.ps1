@@ -9,8 +9,8 @@ if ($LASTEXITCODE -ne 0) { throw "Build do frontend falhou." }
 
 Write-Host "[2/2] Empacotamento (PyInstaller)..."
 Set-Location (Join-Path $root "backend")
-if (-not (Test-Path "vendor\tesseract\tesseract.exe")) {
-    Write-Warning "Tesseract não vendorizado (vendor\tesseract). O exe exigirá Tesseract instalado na máquina. Rode scripts\get_tesseract.ps1 para embutir."
+if (-not (Get-ChildItem "vendor\ocr" -Filter *.onnx -File -ErrorAction SilentlyContinue)) {
+    Write-Warning "Modelos de OCR ausentes (vendor\ocr). O aplicativo empacotado não conseguirá ler imagens. Rode scripts\get_ocr_models.ps1 para embutir."
 }
 if (-not (Test-Path "vendor\cnefe.sqlite")) {
     Write-Warning "Base do IBGE ausente (vendor\cnefe.sqlite). A validação de endereços cairá para o ViaCEP sozinho. Rode 'python tools\build_cnefe.py' para gerá-la."
