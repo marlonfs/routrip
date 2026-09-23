@@ -244,6 +244,10 @@ def _resumo(nome: str, erros: list[float]) -> None:
           f"p90 {q[89]:9.1f} | <=25 m {100 * sum(1 for e in erros if e <= 25) / len(erros):4.1f}%")
 
 
+def _tem_pontas(con) -> bool:
+    return "dlat_min" in {r[1] for r in con.execute("PRAGMA table_info(logradouro)")}
+
+
 def avaliar_numeracao(n: int, seed: int) -> None:
     """Leave-one-out sobre a numeração: esconde um número e mede a dedução.
 
@@ -255,7 +259,10 @@ def avaliar_numeracao(n: int, seed: int) -> None:
     con = cnefe._conexao()
     if con is None or not cnefe.tem_numeracao():
         raise SystemExit("Este modo precisa de uma base com numeração (versao_indice 2).")
-    campos = ",".join(f"l.{c}" for c in cnefe._campos_log())
+    # A base atual não guarda mais as pontas da v1; sem elas só a v2 é medida.
+    com_v1 = _tem_pontas(con)
+    extras = cnefe._CAMPOS_PONTAS if com_v1 else ()
+    campos = ",".join(f"l.{c}" for c in cnefe._campos_log() + extras)
     maior = con.execute("SELECT max(log_id) FROM numeracao").fetchone()[0]
     rnd = random.Random(seed)
     novo: list[float] = []
@@ -288,11 +295,13 @@ def avaliar_numeracao(n: int, seed: int) -> None:
             dlat, dlon = lat_a + t * (lat_b - lat_a), lon_a + t * (lon_b - lon_a)
         novo.append(cnefe.distancia_m(dlat, dlon, vlat, vlon))
 
-        ilat, ilon, _ = cnefe._interpolar(row, alvo)
-        antigo_.append(cnefe.distancia_m(ilat, ilon, vlat, vlon))
+        if com_v1:
+            ilat, ilon, _ = cnefe._interpolar(row, alvo)
+            antigo_.append(cnefe.distancia_m(ilat, ilon, vlat, vlon))
 
     print(f"{len(novo)} números escondidos em {len(vistos)} ruas sorteadas\n")
-    _resumo("v1 (faixa da rua)", antigo_)
+    if com_v1:
+        _resumo("v1 (faixa da rua)", antigo_)
     _resumo("v2 (dois vizinhos)", novo)
 
 
@@ -321,6 +330,10 @@ def main() -> None:
         avaliar_numeracao(args.amostra, args.seed)
         return
     if args.sem_numeracao:
+        con = cnefe._conexao()
+        if con is None or not _tem_pontas(con):
+            raise SystemExit("--sem-numeracao precisa de uma base com as pontas da v1; "
+                             "a base atual não as grava mais.")
         cnefe.FORCAR_V1 = True
         cnefe.limpar_conexao()
 

@@ -7,6 +7,9 @@ export default defineConfig({
   build: {
     outDir: "../backend/static",
     emptyOutDir: true,
+    // Só roda no WebView2 (Chromium atual): dispensa os polyfills e a transpilação
+    // voltada a navegadores antigos.
+    target: "chrome120",
   },
   server: {
     port: 5173,

@@ -36,6 +36,9 @@ _circuito_aberto_ate = 0.0
 _janela_inicio = 0.0
 _consultas_na_janela = 0
 _local = threading.local()
+# Reaproveita a conexão TLS entre consultas; um cliente novo por CEP pagava o handshake
+# toda vez.
+_client = httpx.Client(timeout=TIMEOUT)
 
 
 class CepIndisponivel(Exception):
@@ -168,16 +171,15 @@ def consultar(cep: str) -> CepInfo | None:
 
     _throttle()
     erro: Exception | None = None
-    with httpx.Client(timeout=TIMEOUT) as client:
-        for provedor in (_do_viacep, _do_brasilapi):
-            try:
-                info = provedor(limpo, client)
-            except (httpx.HTTPError, ValueError) as exc:
-                erro = exc
-                continue
-            _registrar(True)
-            _gravar_cache(limpo, info)
-            return info
+    for provedor in (_do_viacep, _do_brasilapi):
+        try:
+            info = provedor(limpo, _client)
+        except (httpx.HTTPError, ValueError) as exc:
+            erro = exc
+            continue
+        _registrar(True)
+        _gravar_cache(limpo, info)
+        return info
 
     _registrar(False)
     raise CepIndisponivel(str(erro) if erro else "falha ao consultar CEP")

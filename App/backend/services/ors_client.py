@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor
+
 import httpx
 
 from core.schemas import GeocodeHit
@@ -6,6 +8,15 @@ from services.br_address_terms import expandir_abreviacoes as expand_abbreviatio
 BASE = "https://api.openrouteservice.org"
 TIMEOUT = httpx.Timeout(30.0, connect=10.0)
 MATRIX_MAX_ROUTES = 3500
+# Blocos da matriz e pernas do traçado saem em paralelo. Uma rota de 100 paradas são 3 de
+# cada, bem dentro do limite por minuto do plano gratuito.
+BLOCOS_PARALELOS = 3
+
+# Um cliente só para o processo: `httpx.request` abria conexão e TLS novos a cada
+# chamada, e a cascata de geocodificação faz várias seguidas para o mesmo host. O
+# cliente é thread-safe e atende o threadpool do FastAPI.
+_client = httpx.Client(base_url=BASE, timeout=TIMEOUT,
+                       limits=httpx.Limits(max_keepalive_connections=8, keepalive_expiry=60))
 
 
 class OrsError(Exception):
@@ -41,8 +52,7 @@ def _friendly_error(resp: httpx.Response) -> OrsError:
 def _request(method: str, path: str, api_key: str, *, params=None, json=None) -> dict:
     headers = {"Authorization": api_key, "Accept": "application/json"}
     try:
-        resp = httpx.request(method, BASE + path, params=params, json=json,
-                             headers=headers, timeout=TIMEOUT)
+        resp = _client.request(method, path, params=params, json=json, headers=headers)
     except httpx.HTTPError as exc:
         raise OrsError(0, f"Falha de conexão com o OpenRouteService: {exc}") from exc
     if resp.status_code != 200:
@@ -141,22 +151,27 @@ def matrix(api_key: str, coords_latlon: list[tuple[float, float]]) -> dict:
 
     colunas = min(n, MATRIX_MAX_ROUTES)
     linhas = max(1, MATRIX_MAX_ROUTES // colunas)
-    durations: list[list] = []
-    distances: list[list] = []
-    for inicio_l in range(0, n, linhas):
-        sources = list(range(inicio_l, min(inicio_l + linhas, n)))
-        faixa_dur: list[list] = [[] for _ in sources]
-        faixa_dis: list[list] = [[] for _ in sources]
-        for inicio_c in range(0, n, colunas):
-            pedido = {**body, "sources": sources}
-            if colunas < n:
-                pedido["destinations"] = list(range(inicio_c, min(inicio_c + colunas, n)))
-            data = _request("POST", "/v2/matrix/driving-car", api_key, json=pedido)
-            for k in range(len(sources)):
-                faixa_dur[k].extend(data["durations"][k])
-                faixa_dis[k].extend(data["distances"][k])
-        durations.extend(faixa_dur)
-        distances.extend(faixa_dis)
+    blocos = [(list(range(inicio_l, min(inicio_l + linhas, n))), inicio_c)
+              for inicio_l in range(0, n, linhas) for inicio_c in range(0, n, colunas)]
+
+    def pedir(bloco: tuple[list[int], int]) -> dict:
+        sources, inicio_c = bloco
+        pedido = {**body, "sources": sources}
+        if colunas < n:
+            pedido["destinations"] = list(range(inicio_c, min(inicio_c + colunas, n)))
+        return _request("POST", "/v2/matrix/driving-car", api_key, json=pedido)
+
+    with ThreadPoolExecutor(BLOCOS_PARALELOS) as pool:
+        respostas = list(pool.map(pedir, blocos))
+
+    # `map` devolve na ordem dos blocos: faixas de linhas em sequência e, dentro de cada
+    # uma, as faixas de colunas da esquerda para a direita.
+    durations: list[list] = [[] for _ in range(n)]
+    distances: list[list] = [[] for _ in range(n)]
+    for (sources, _), data in zip(blocos, respostas):
+        for k, origem in enumerate(sources):
+            durations[origem].extend(data["durations"][k])
+            distances[origem].extend(data["distances"][k])
     return {"durations": durations, "distances": distances}
 
 
@@ -185,17 +200,24 @@ def directions_geometry(api_key: str,
                         coords_latlon: list[tuple[float, float]]) -> list[list[float]]:
     """Geometria da rota (lista [lat, lon]) passando pelos pontos na ordem dada.
     Divide em pernas de até 50 pontos (limite do ORS)."""
-    geometry: list[list[float]] = []
+    pernas = []
     i = 0
     while i < len(coords_latlon) - 1:
         j = min(i + 49, len(coords_latlon) - 1)
-        chunk = coords_latlon[i:j + 1]
+        pernas.append(coords_latlon[i:j + 1])
+        i = j
+
+    def pedir(chunk: list[tuple[float, float]]) -> list[list[float]]:
         body = {"coordinates": [[lon, lat] for lat, lon in chunk]}
         data = _request("POST", "/v2/directions/driving-car", api_key, json=body)
-        encoded = data["routes"][0]["geometry"]
-        part = _decode_polyline5(encoded)
+        return _decode_polyline5(data["routes"][0]["geometry"])
+
+    with ThreadPoolExecutor(BLOCOS_PARALELOS) as pool:
+        partes = list(pool.map(pedir, pernas))
+
+    geometry: list[list[float]] = []
+    for part in partes:
         if geometry and part and geometry[-1] == part[0]:
             part = part[1:]
         geometry.extend(part)
-        i = j
     return geometry

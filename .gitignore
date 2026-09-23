@@ -24,6 +24,7 @@ node_modules/
 App/backend/static/
 App/backend/build/
 App/backend/dist/
+App/installer/output/
 App/backend/vendor/ocr/
 App/backend/vendor/cnefe.sqlite
 App/.cache-cnefe/

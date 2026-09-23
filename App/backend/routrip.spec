@@ -41,9 +41,16 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     runtime_hooks=[],
-    excludes=["tkinter"],
+    # Ferramentas de desenvolvimento que entram por import transitivo e nunca rodam no
+    # app. `requests` fica: o rapidocr o importa no topo de utils/load_image.py.
+    excludes=["tkinter", "pytest", "_pytest", "setuptools", "pip", "pygments",
+              "IPython", "matplotlib"],
     noarchive=False,
 )
+
+# O plugin de vídeo do OpenCV (FFmpeg, ~30 MB) só serve a VideoCapture/VideoWriter; o
+# cv2 carrega-o sob demanda e segue funcionando sem ele para as operações de imagem.
+a.binaries = [b for b in a.binaries if "opencv_videoio_ffmpeg" not in b[0]]
 
 pyz = PYZ(a.pure)
 

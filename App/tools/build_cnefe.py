@@ -389,14 +389,13 @@ def criar_base(tmp: Path) -> sqlite3.Connection:
         -- toda consulta chega. Um índice à parte custaria 25 B por linha, 55 MB no
         -- Brasil, para repetir o que a tabela já faz.
         --
-        -- num_min/num_max e as pontas viraram peso morto com a tabela numeracao, mas
-        -- ficam: uma versão antiga do aplicativo abrindo esta base morreria com
-        -- "no such column".
+        -- As pontas da faixa (dlat/dlon_min/max) eram a interpolação da base v1 e
+        -- saíram com a tabela numeracao: 22 MB no Brasil. num_min/num_max ficam porque
+        -- a resposta da busca ainda as mostra.
         CREATE TABLE logradouro (
             cod_ibge INTEGER, nome TEXT, tipo INTEGER,
             n_end INTEGER, cep INTEGER, lat INTEGER, lon INTEGER, raio_m INTEGER,
             num_min INTEGER, num_max INTEGER,
-            dlat_min INTEGER, dlon_min INTEGER, dlat_max INTEGER, dlon_max INTEGER,
             id INTEGER,
             PRIMARY KEY (cod_ibge, nome, tipo)
         ) WITHOUT ROWID;
@@ -444,7 +443,7 @@ def gravar_logradouros(con: sqlite3.Connection, logs: dict[tuple, AgregadoLog],
         lat, lon = lg.centroide()
         lat_e6, lon_e6 = round(lat * 1e6), round(lon * 1e6)
         raio = min(RAIO_MAX_M, max(RAIO_MIN_M, lg.raio_bruto_m()))
-        num_min, num_max, p_min, p_max = _pontas(lg, lat, lon, raio)
+        num_min, num_max, _, _ = _pontas(lg, lat, lon, raio)
         log_id = proximo_id
         proximo_id += 1
         linhas.append((
@@ -452,10 +451,6 @@ def gravar_logradouros(con: sqlite3.Connection, logs: dict[tuple, AgregadoLog],
             int(lg.cep.valor) if lg.cep.valor else None,
             lat_e6, lon_e6, round(raio),
             num_min, num_max,
-            # Pontas como deslocamento do centroide: cabem em 2 ou 3 bytes de varint,
-            # contra 4 se fossem coordenadas absolutas.
-            round((p_min[0] - lat) * 1e6), round((p_min[1] - lon) * 1e6),
-            round((p_max[0] - lat) * 1e6), round((p_max[1] - lon) * 1e6),
             log_id,
         ))
         if lg.nums is not None:
@@ -466,7 +461,7 @@ def gravar_logradouros(con: sqlite3.Connection, logs: dict[tuple, AgregadoLog],
             numeros.append((log_id, n, blob))
             n_pares += n
     con.executemany(
-        "INSERT OR REPLACE INTO logradouro VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)", linhas)
+        "INSERT OR REPLACE INTO logradouro VALUES (?,?,?,?,?,?,?,?,?,?,?)", linhas)
     con.executemany("INSERT OR REPLACE INTO numeracao VALUES (?,?,?)", numeros)
     con.commit()
     return len(linhas), proximo_id, n_pares

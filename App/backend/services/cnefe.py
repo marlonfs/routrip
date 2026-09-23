@@ -71,7 +71,13 @@ def _conexao() -> sqlite3.Connection | None:
     caminho = cnefe_db()
     if caminho is None:
         return None
-    con = sqlite3.connect(f"file:{caminho}?mode=ro", uri=True, check_same_thread=False)
+    # `immutable`: a base não muda com o app aberto (quem a regrava tem de chamar
+    # `limpar_conexao`), então o sqlite pode dispensar lock e checagem de mudança.
+    # O mmap evita copiar para o cache cada página lida da base de 450 MB.
+    con = sqlite3.connect(f"file:{caminho}?mode=ro&immutable=1", uri=True,
+                          check_same_thread=False)
+    con.execute("PRAGMA mmap_size = 536870912")
+    con.execute("PRAGMA cache_size = -32000")
     con.row_factory = sqlite3.Row
     _local.con = con
     return con
@@ -208,12 +214,15 @@ def distancia_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 # --- busca por logradouro ----------------------------------------------------
 
 _CAMPOS_LOG = ("nome", "tipo", "n_end", "cep", "lat", "lon", "raio_m",
-               "num_min", "num_max", "dlat_min", "dlon_min", "dlat_max", "dlon_max")
+               "num_min", "num_max")
+# As pontas da faixa só servem à interpolação da v1, e a base v2 já não as grava.
+_CAMPOS_PONTAS = ("dlat_min", "dlon_min", "dlat_max", "dlon_max")
 
 
 def _campos_log() -> tuple[str, ...]:
-    """`id` só existe na base v2; pedi-lo numa v1 mataria a busca com "no such column"."""
-    return _CAMPOS_LOG + ("id",) if tem_numeracao() else _CAMPOS_LOG
+    """Cada versão tem colunas que a outra não tem: `id` só existe na v2 e as pontas só
+    na v1. Pedir a coluna errada mataria a busca com "no such column"."""
+    return _CAMPOS_LOG + ("id",) if tem_numeracao() else _CAMPOS_LOG + _CAMPOS_PONTAS
 
 
 def _tipos() -> dict[int, str]:

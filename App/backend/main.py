@@ -59,6 +59,19 @@ def _wait_ready(port: int, timeout: float = 15.0) -> bool:
     return False
 
 
+def _aquecer() -> None:
+    """Carrega de antemão o que a primeira ação do usuário pagaria: ~1 s dos modelos de
+    OCR e a tabela de municípios da busca. Roda enquanto a janela abre; qualquer falha
+    aqui reaparece no caminho normal, que já sabe tratá-la."""
+    from services import cnefe, ocr
+
+    for passo in (cnefe._municipios, lambda: ocr._motor(ocr.preset_ativo())):
+        try:
+            passo()
+        except Exception:
+            pass
+
+
 def main() -> None:
     import webview
 
@@ -69,6 +82,7 @@ def main() -> None:
     threading.Thread(target=server.run, daemon=True).start()
     if not _wait_ready(port):
         raise SystemExit("O servidor interno não iniciou a tempo.")
+    threading.Thread(target=_aquecer, daemon=True).start()
 
     webview.create_window(
         "Routrip",
