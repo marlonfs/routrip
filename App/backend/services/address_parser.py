@@ -20,10 +20,26 @@ _UF_SIGLA = re.compile(
 # separador, e não só sumir: colado no começo do segmento ele esconde o tipo do
 # logradouro de `TIPO_LOGRADOURO.match`, que ancora no início — e aí
 # "Endereço: Avenida de Cillo, 2110" sai sem logradouro e sem número.
-_ROTULO_ENDERECO = re.compile(r"(?i)\b(endere[çc]o|end)\.?\s*:\s*")
+# Em DANFE e NFS-e o rótulo vem sem dois-pontos ("Endereço RUA VOLUNTARIOS...") e às
+# vezes depois do valor ("AV CENTENARIO, 1080 ENDEREÇO PIRACICABA"); nos dois casos ele
+# é fronteira. Só a forma abreviada exige ":", porque "end" solto é palavra comum.
+_ROTULO_ENDERECO = re.compile(r"(?i)\bendere[çc]o\b\s*:?\s*|\bend\.?\s*:\s*")
+# O cabeçalho do quadro do destinatário fica entre o nome e a rua na mesma linha de OCR.
+_ROTULO_NOME = re.compile(
+    r"(?i)\bnome\s*/\s*(?:raz[ãa]o\s+social|nome\s+empresarial)\b|\braz[ãa]o\s+social\b"
+)
 _ROTULO_BAIRRO = re.compile(r"(?i)\bbairro\s*:?\s*")
 _ROTULO_CIDADE = re.compile(r"(?i)\b(cidade|munic[íi]pio|localidade)\s*:?\s*")
 _ROTULO_CEP = re.compile(r"(?i)\bcep\s*:?\s*")
+# No quadro do destinatário do DANFE o OCR lê o valor antes do rótulo: "13416000 CEP".
+# O lookahead impede de roubar o rótulo do CEP seguinte em "13400-000 CEP: 13480-000".
+_ROTULO_CEP_DEPOIS = re.compile(r"(?i)\s*cep\b(?!\s*:?\s*\d)")
+# No meio do segmento só os tipos inequívocos: a lista completa tem "Entrada", "Via",
+# "Setor" e "Est", que em nota fiscal casam com "DATA DA ENTRADA" e "EST AGRARIOS".
+_TIPO_NO_MEIO = re.compile(
+    r"(?i)(?<![0-9A-Za-zÀ-ú])(rua|avenida|avn|av|alameda|travessa|trav|rodovia|rod|"
+    r"estrada|pra[çc]a)\.?(?![0-9A-Za-zÀ-ú])"
+)
 # A fronteira à direita evita que "LTDA" da razão social vire "Lt DA".
 _COMPLEMENTO = re.compile(
     r"(?i)(?<![a-zà-ú])(" + "|".join(sorted(termos.TERMOS_COMPLEMENTO, key=len, reverse=True))
@@ -55,6 +71,42 @@ def _cortar(text: str, inicio: int, fim: int) -> str:
 
 def _segmentar(text: str) -> list[str]:
     return [s for s in (p.strip(_LIXO) for p in _SEPARADOR.split(text)) if s]
+
+
+def _cep_nulo(m: re.Match[str]) -> bool:
+    return termos.formatar_cep(m) == "00000-000"
+
+
+def _rotulo_cep(text: str, m: re.Match[str]) -> tuple[int, int] | None:
+    """Trecho CEP + rótulo, com o rótulo antes ("CEP: 13400-000") ou depois
+    ("13400000 CEP") do número; None se o CEP estiver solto."""
+    antes = _ROTULO_CEP.search(text, max(0, m.start() - 6), m.start())
+    if antes and antes.end() == m.start():
+        return antes.start(), m.end()
+    depois = _ROTULO_CEP_DEPOIS.match(text, m.end())
+    if depois:
+        return m.start(), depois.end()
+    return None
+
+
+def _cortar_cep(text: str, m: re.Match[str]) -> str:
+    return _cortar(text, *(_rotulo_cep(text, m) or m.span()))
+
+
+def _consumir_cep(resto: str, out: ParsedAddress) -> str:
+    """"00000-000" é o placeholder de formulário sem CEP preenchido: nunca vira campo.
+    Entre os demais, o que vem rotulado ("CEP: 13400-000") ganha de um solto, que pode
+    ser telefone, código de rota ou o CEP do emitente. Todos saem do texto, escolhidos
+    ou não: o que sobrasse viraria bairro ou cidade mais adiante."""
+    achados = [m for m in termos.CEP.finditer(resto) if not _cep_nulo(m)]
+    m = next((m for m in achados if _rotulo_cep(resto, m)), achados[0] if achados else None)
+    if m:
+        out.cep = termos.formatar_cep(m)
+    # Um corte por vez, buscando de novo: `_cortar` normaliza espaços e desloca as
+    # posições dos matches seguintes.
+    while m := termos.CEP.search(resto):
+        resto = _cortar_cep(resto, m)
+    return resto
 
 
 def _consumir_uf(resto: str, out: ParsedAddress) -> str:
@@ -98,37 +150,21 @@ def _via_plausivel(nome: str) -> bool:
     return not (len(tokens) >= 3 and all(len(t) == 1 for t in tokens))
 
 
-def parse_address(text: str) -> ParsedAddress:
-    """Extrai campos por consumo-e-remoção: cada campo encontrado sai do texto para
-    não competir com os seguintes."""
-    resto = _ROTULO_ENDERECO.sub(" , ", _limpar(text))
-    out = ParsedAddress()
+def _depois_do_nome(resto: str) -> str:
+    """O que antecede "NOME / RAZÃO SOCIAL" é cabeçalho do quadro e nome do
+    destinatário; mantido, vira bairro ou cidade. Só corta se houver logradouro depois
+    do rótulo: numa janela de várias linhas o endereço pode estar na linha anterior."""
+    rotulos = list(_ROTULO_NOME.finditer(resto))
+    if rotulos and _TIPO_NO_MEIO.search(resto, rotulos[-1].end()):
+        return resto[rotulos[-1].end():]
+    return resto
 
-    m = termos.CEP.search(resto)
-    if m:
-        out.cep = termos.formatar_cep(m)
-        inicio = m.start()
-        rotulo = _ROTULO_CEP.search(resto, max(0, inicio - 6), inicio)
-        resto = _cortar(resto, rotulo.start() if rotulo else inicio, m.end())
 
-    resto = _consumir_uf(resto, out)
-
-    m = _COMPLEMENTO.search(resto)
-    if m:
-        out.complemento = f"{m.group(1).capitalize()} {m.group(2)}"
-        resto = _cortar(resto, m.start(), m.end())
-
-    # A marca de "sem número" vira separador: em texto corrido de OCR ela é a única
-    # fronteira entre o logradouro e o que vem depois.
-    if _SEM_NUMERO.search(resto):
-        out.sem_numero = True
-        resto = _SEM_NUMERO.sub(" , ", resto)
-
-    segmentos = _segmentar(resto)
-
-    idx_logradouro = None
+def _consumir_logradouro(segmentos: list[str], out: ParsedAddress, achar) -> int | None:
+    """Preenche tipo, nome e número a partir do primeiro segmento em que `achar` encontra
+    um tipo de logradouro plausível; devolve o índice desse segmento."""
     for i, seg in enumerate(segmentos):
-        m = termos.TIPO_LOGRADOURO.match(seg)
+        m = achar(seg)
         if not m:
             continue
         nome = seg[m.end():].strip(_LIXO)
@@ -146,8 +182,37 @@ def parse_address(text: str) -> ParsedAddress:
             if sobra:
                 segmentos.insert(i + 1, sobra)
         out.logradouro = nome or None
-        idx_logradouro = i
-        break
+        return i
+    return None
+
+
+def parse_address(text: str) -> ParsedAddress:
+    """Extrai campos por consumo-e-remoção: cada campo encontrado sai do texto para
+    não competir com os seguintes."""
+    resto = _depois_do_nome(_ROTULO_ENDERECO.sub(" , ", _limpar(text)))
+    out = ParsedAddress()
+    resto = _consumir_cep(resto, out)
+    resto = _consumir_uf(resto, out)
+
+    m = _COMPLEMENTO.search(resto)
+    if m:
+        out.complemento = f"{m.group(1).capitalize()} {m.group(2)}"
+        resto = _cortar(resto, m.start(), m.end())
+
+    # A marca de "sem número" vira separador: em texto corrido de OCR ela é a única
+    # fronteira entre o logradouro e o que vem depois.
+    if _SEM_NUMERO.search(resto):
+        out.sem_numero = True
+        resto = _SEM_NUMERO.sub(" , ", resto)
+
+    segmentos = _segmentar(resto)
+
+    # O tipo no começo do segmento é o caso limpo e tem prioridade. No meio, ele vem
+    # depois do nome do destinatário que o OCR juntou na mesma linha
+    # ("FUNDACAO ... LUIZ DE QUEIROZ AV CENTENARIO"), e o que o precede é descartado.
+    idx_logradouro = _consumir_logradouro(segmentos, out, termos.TIPO_LOGRADOURO.match)
+    if idx_logradouro is None:
+        idx_logradouro = _consumir_logradouro(segmentos, out, _TIPO_NO_MEIO.search)
 
     livres = [s for i, s in enumerate(segmentos) if i != idx_logradouro]
 
@@ -199,10 +264,7 @@ def parse_busca(text: str) -> ParsedAddress:
 
     resto = _limpar(text)
     out = ParsedAddress()
-    m = termos.CEP.search(resto)
-    if m:
-        out.cep = termos.formatar_cep(m)
-        resto = _cortar(resto, m.start(), m.end())
+    resto = _consumir_cep(resto, out)
     resto = _consumir_uf(resto, out)
 
     segmentos = _segmentar(resto)
@@ -294,7 +356,11 @@ def _ordem_coerente(linhas: list[str], p: ParsedAddress) -> bool:
         return True
     alvo = termos.normalizar(p.logradouro)
     i_log = next((i for i, ln in enumerate(linhas) if alvo in termos.normalizar(ln)), None)
-    i_cep = next((i for i, ln in enumerate(linhas) if termos.CEP.search(ln)), None)
+    # A linha do CEP escolhido, e não a do primeiro CEP: o parser pode ter pulado um
+    # "00000-000" ou um CEP solto em favor do rotulado.
+    i_cep = next((i for i, ln in enumerate(linhas)
+                  if any(termos.formatar_cep(m) == p.cep for m in termos.CEP.finditer(ln))),
+                 None)
     return i_log is None or i_cep is None or i_cep >= i_log
 
 

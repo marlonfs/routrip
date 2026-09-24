@@ -185,3 +185,6 @@ Durante a avaliação do script anterior, o Opus 5.5 encontrou um erro no parser
 
 3.6 Claude Opus 5.5 (xHigh)
 Como podemos aumentar o limite de 50 paradas? Generalize para poder receber n paradas.
+
+3.7 Claude Opus 5.5 (xHigh)
+Altere o parse_address tanto para preferir com rótulo, quanto para desconsiderar CEP = 00000-000
