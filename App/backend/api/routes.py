@@ -1,4 +1,5 @@
 import webbrowser
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
@@ -8,12 +9,14 @@ from core.config import AppConfig, load_config, save_config
 from core.schemas import (
     AddressCandidate,
     AddressLines,
+    FleetPlan,
     PlannedStop,
     ResolvedAddress,
     ResolveRequest,
     RoutePlan,
     RouteSolveRequest,
     SpreadsheetPreview,
+    VehicleRoute,
 )
 from services import (
     address_parser,
@@ -282,8 +285,9 @@ def _get_matrix(key: str, coords: list[tuple[float, float]]) -> dict:
     return result
 
 
-@router.post("/route/solve")
-def solve_route(req: RouteSolveRequest):
+def _prepare(req: RouteSolveRequest):
+    """O que o cálculo de um veículo e o da frota têm em comum: validação, hora de
+    saída e a matriz (uma só para a frota inteira — a cota do ORS não muda)."""
     if len(req.stops) > MAX_STOPS:
         raise HTTPException(400, f"Máximo de {MAX_STOPS} paradas por rota.")
     key = _require_key()
@@ -299,19 +303,20 @@ def solve_route(req: RouteSolveRequest):
     except OrsError as exc:
         raise _http_from_ors(exc)
 
-    durations = mat["durations"]
-    distances = mat["distances"]
     warnings: list[str] = []
+    durations = mat["durations"]
     n = len(coords)
     if any(durations[i][j] is None for i in range(n) for j in range(n) if i != j):
         warnings.append("Alguns pontos não são alcançáveis por via rodoviária; a ordem pode ficar imprecisa.")
+    return key, departure, coords, mat, warnings
 
-    cost = durations if req.optimize_by == "duration" else distances
-    try:
-        tour = solver_lkh.solve_atsp(cost)
-    except RuntimeError as exc:
-        raise HTTPException(500, f"Falha na otimização da rota: {exc}")
 
+def _build_route(req: RouteSolveRequest, tour: list[int], coords, mat, departure,
+                 key: str, geometry_warnings: list[str]) -> dict:
+    """Campos de uma rota fechada a partir do tour (tour[0] = origem, índices da
+    matriz): ETAs, distância, traçado e links do Google Maps."""
+    durations = mat["durations"]
+    distances = mat["distances"]
     etas = compute_etas(tour, durations, departure, req.stop_minutes * 60)
 
     ordered = [req.stops[i - 1] for i in tour[1:]]
@@ -336,17 +341,83 @@ def solve_route(req: RouteSolveRequest):
         try:
             geometry = ors_client.directions_geometry(key, cycle)
         except OrsError as exc:
-            warnings.append(f"Não foi possível obter o traçado da rota no mapa: {exc.message}")
+            geometry_warnings.append(f"Não foi possível obter o traçado da rota no mapa: {exc.message}")
 
-    return RoutePlan(
+    return dict(
         ordered_stops=planned,
-        departure_time=req.departure_time,
         return_eta=etas.return_eta.strftime("%H:%M"),
         total_duration_s=etas.total_seconds,
         total_distance_m=total_distance,
         driving_duration_s=etas.driving_seconds,
         geometry=geometry,
         gmaps_urls=gmaps_export.build_gmaps_urls(cycle),
+        _return_dt=etas.return_eta,
+    )
+
+
+@router.post("/route/solve")
+def solve_route(req: RouteSolveRequest):
+    key, departure, coords, mat, warnings = _prepare(req)
+
+    cost = mat["durations"] if req.optimize_by == "duration" else mat["distances"]
+    try:
+        tour = solver_lkh.solve_atsp(cost)
+    except RuntimeError as exc:
+        raise HTTPException(500, f"Falha na otimização da rota: {exc}")
+
+    route = _build_route(req, tour, coords, mat, departure, key, warnings)
+    route.pop("_return_dt")
+    return RoutePlan(departure_time=req.departure_time, warnings=warnings, **route)
+
+
+@router.post("/route/solve-fleet")
+def solve_fleet(req: RouteSolveRequest):
+    """Vários veículos saindo e voltando ao mesmo ponto de partida. Por tempo, o
+    objetivo é o último veículo voltar o mais cedo possível (MINMAX, com o tempo de
+    atendimento dentro do custo); por distância, a menor soma de km da frota (MINSUM)."""
+    key, departure, coords, mat, warnings = _prepare(req)
+
+    vehicles = min(req.vehicles, len(req.stops))
+    if vehicles < req.vehicles:
+        warnings.append(
+            f"Há só {len(req.stops)} {'parada' if len(req.stops) == 1 else 'paradas'} para "
+            f"{req.vehicles} veículos: {vehicles} {'sai' if vehicles == 1 else 'saem'}, "
+            "cada um com pelo menos uma parada."
+        )
+
+    by_time = req.optimize_by == "duration"
+    try:
+        tours = solver_lkh.solve_mtsp(
+            mat["durations"] if by_time else mat["distances"],
+            vehicles,
+            objective="minmax" if by_time else "minsum",
+            service_s=req.stop_minutes * 60 if by_time else 0,
+        )
+    except RuntimeError as exc:
+        raise HTTPException(500, f"Falha na otimização da frota: {exc}")
+
+    # Um traçado por veículo: em paralelo, como os blocos de matriz do ORS.
+    geometry_warnings: list[list[str]] = [[] for _ in tours]
+    with ThreadPoolExecutor(ors_client.BLOCOS_PARALELOS) as pool:
+        built = list(pool.map(
+            lambda k: _build_route(req, [0, *tours[k]], coords, mat, departure, key,
+                                   geometry_warnings[k]),
+            range(len(tours)),
+        ))
+    for ws in geometry_warnings:
+        for w in ws:
+            if w not in warnings:
+                warnings.append(w)
+
+    last_return = max(r.pop("_return_dt") for r in built)
+    routes_out = [VehicleRoute(vehicle=k + 1, **r) for k, r in enumerate(built)]
+    return FleetPlan(
+        routes=routes_out,
+        departure_time=req.departure_time,
+        total_distance_m=sum(r.total_distance_m for r in routes_out),
+        driving_duration_s=sum(r.driving_duration_s for r in routes_out),
+        makespan_s=(last_return - departure).total_seconds(),
+        last_return_eta=last_return.strftime("%H:%M"),
         warnings=warnings,
     )
 

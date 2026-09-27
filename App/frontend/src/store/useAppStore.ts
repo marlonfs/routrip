@@ -3,6 +3,7 @@ import { api, postJson, putJson } from "../api/client";
 import type {
   AddressCandidate,
   AppConfigResponse,
+  FleetPlan,
   GeocodeHit,
   OptimizeBy,
   ResolvedAddress,
@@ -20,6 +21,9 @@ export type PanelTab = "plan" | "route" | "settings";
 // ESALQ/USP, Piracicaba-SP — centro inicial do mapa
 export const INITIAL_CENTER: [number, number] = [-22.7089, -47.6328];
 export const INITIAL_ZOOM = 15;
+
+/** Mesmo teto do servidor (`MAX_VEHICLES` em core/schemas.py). */
+export const MAX_VEHICLES = 20;
 
 let idCounter = 0;
 export const newStopId = () =>
@@ -46,7 +50,15 @@ interface AppState {
   spreadsheet: SpreadsheetPreview | null;
   spreadsheetQueue: File[];
 
+  /** Quantos veículos a frota tem. `null` até o usuário escolher na tela de abertura:
+   * é a primeira decisão do app, porque muda o cálculo inteiro. */
+  vehicles: number | null;
+  fleetOpen: boolean;
+
+  /** Com 1 veículo o resultado fica em `plan`, exatamente como antes da frota; com 2
+   * ou mais, em `fleet`. Nunca os dois ao mesmo tempo. */
   plan: RoutePlan | null;
+  fleet: FleetPlan | null;
   solving: boolean;
 
   mapCenter: [number, number];
@@ -58,6 +70,9 @@ interface AppState {
   closeSettings: () => void;
   setConfirmReset: (v: boolean) => void;
   reset: () => void;
+  setVehicles: (n: number) => void;
+  openFleet: () => void;
+  closeFleet: () => void;
 
   loadConfig: () => Promise<void>;
   saveSettings: (update: Partial<AppConfigResponse> & { ors_api_key?: string }) => Promise<void>;
@@ -153,7 +168,11 @@ export const useAppStore = create<AppState>((set, get) => ({
   spreadsheet: null,
   spreadsheetQueue: [],
 
+  vehicles: null,
+  fleetOpen: false,
+
   plan: null,
+  fleet: null,
   solving: false,
 
   mapCenter: INITIAL_CENTER,
@@ -165,11 +184,25 @@ export const useAppStore = create<AppState>((set, get) => ({
   closeSettings: () => set((st) => ({ tab: st.prevTab })),
   setConfirmReset: (v) => set({ confirmReset: v }),
 
+  // Trocar a frota mantém partida e paradas; só a rota calculada deixa de valer.
+  setVehicles: (n) =>
+    set((st) => ({
+      vehicles: Math.min(MAX_VEHICLES, Math.max(1, Math.round(n))),
+      fleetOpen: false,
+      plan: null,
+      fleet: null,
+      tab: st.tab === "route" ? "plan" : st.tab,
+      prevTab: st.prevTab === "route" ? "plan" : st.prevTab,
+    })),
+  openFleet: () => set({ fleetOpen: true }),
+  closeFleet: () => set({ fleetOpen: false }),
+
   reset: () =>
     set({
       origin: null,
       stops: [],
       plan: null,
+      fleet: null,
       candidates: [],
       propostas: [],
       reviewOpen: false,
@@ -216,7 +249,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ error: "Remova as paradas antes de limpar o ponto de partida." });
       return;
     }
-    set({ origin: s, plan: null });
+    set({ origin: s, plan: null, fleet: null });
   },
 
   // O ponto de partida é o foco geográfico de toda geocodificação: sem ele, o
@@ -231,6 +264,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       origin: { id: "origin", label: `${lat.toFixed(5)}, ${lon.toFixed(5)}`, lat, lon },
       plan: null,
+      fleet: null,
     });
     const label = await reverseLabel(lat, lon);
     const current = get().origin;
@@ -239,7 +273,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   addStop: (s) => {
     if (!get().requireOrigin()) return;
-    set((st) => ({ stops: [...st.stops, s], plan: null }));
+    set((st) => ({ stops: [...st.stops, s], plan: null, fleet: null }));
   },
 
   addStopAt: async (lat, lon) => {
@@ -248,6 +282,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((st) => ({
       stops: [...st.stops, { id, label: `${lat.toFixed(5)}, ${lon.toFixed(5)}`, lat, lon }],
       plan: null,
+      fleet: null,
     }));
     const label = await reverseLabel(lat, lon);
     set((st) => ({
@@ -255,12 +290,17 @@ export const useAppStore = create<AppState>((set, get) => ({
     }));
   },
   removeStop: (id) =>
-    set((st) => ({ stops: st.stops.filter((s) => s.id !== id), plan: null })),
+    set((st) => ({
+      stops: st.stops.filter((s) => s.id !== id),
+      plan: null,
+      fleet: null,
+    })),
 
   moveStopPosition: async (id, lat, lon) => {
     set((st) => ({
       stops: st.stops.map((s) => (s.id === id ? { ...s, lat, lon } : s)),
       plan: null,
+      fleet: null,
     }));
     const label = await reverseLabel(lat, lon);
     set((st) => ({
@@ -271,7 +311,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   moveOrigin: async (lat, lon) => {
     const origin = get().origin;
     if (!origin) return;
-    set({ origin: { ...origin, lat, lon }, plan: null });
+    set({ origin: { ...origin, lat, lon }, plan: null, fleet: null });
     const label = await reverseLabel(lat, lon);
     const current = get().origin;
     if (current) set({ origin: { ...current, label } });
@@ -334,7 +374,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   setReviewOpen: (open) => set({ reviewOpen: open }),
 
   solve: async () => {
-    const { origin, stops, optimizeBy, departureTime, stopMinutes } = get();
+    const { origin, stops, optimizeBy, departureTime, stopMinutes, vehicles } = get();
     if (!origin) {
       set({ error: "Defina o ponto de partida antes de calcular a rota." });
       return;
@@ -344,22 +384,31 @@ export const useAppStore = create<AppState>((set, get) => ({
       return;
     }
     set({ solving: true, error: null });
+    const body = {
+      origin,
+      stops,
+      optimize_by: optimizeBy,
+      departure_time: departureTime,
+      stop_minutes: stopMinutes,
+      want_geometry: true,
+    };
     try {
-      const plan = await postJson<RoutePlan>("/api/route/solve", {
-        origin,
-        stops,
-        optimize_by: optimizeBy,
-        departure_time: departureTime,
-        stop_minutes: stopMinutes,
-        want_geometry: true,
-      });
-      set({ plan, solving: false, tab: "route", prevTab: "route" });
+      if ((vehicles ?? 1) <= 1) {
+        const plan = await postJson<RoutePlan>("/api/route/solve", body);
+        set({ plan, fleet: null, solving: false, tab: "route", prevTab: "route" });
+      } else {
+        const fleet = await postJson<FleetPlan>("/api/route/solve-fleet", {
+          ...body,
+          vehicles,
+        });
+        set({ fleet, plan: null, solving: false, tab: "route", prevTab: "route" });
+      }
     } catch (e) {
       set({ error: (e as Error).message, solving: false });
     }
   },
 
-  invalidatePlan: () => set({ plan: null }),
+  invalidatePlan: () => set({ plan: null, fleet: null }),
 
   setMapCenter: (c) => set({ mapCenter: c }),
   setFlyTarget: (c) => set({ flyTarget: c }),

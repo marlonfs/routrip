@@ -176,6 +176,30 @@ export interface RoutePlan {
   warnings: string[];
 }
 
+/** A rota de um veículo da frota. Mesmos campos de `RoutePlan`, menos os que valem
+ * para a frota inteira. */
+export interface VehicleRoute {
+  vehicle: number;
+  ordered_stops: PlannedStop[];
+  return_eta: string;
+  total_duration_s: number;
+  total_distance_m: number;
+  driving_duration_s: number;
+  geometry: [number, number][] | null;
+  gmaps_urls: string[];
+}
+
+export interface FleetPlan {
+  routes: VehicleRoute[];
+  departure_time: string;
+  total_distance_m: number;
+  driving_duration_s: number;
+  /** Da saída até a volta do último veículo: é quando o dia de entregas acaba. */
+  makespan_s: number;
+  last_return_eta: string;
+  warnings: string[];
+}
+
 export type OptimizeBy = "duration" | "distance";
 
 export interface AppConfigResponse {

@@ -8,6 +8,8 @@ import OptimizeToggle from "./components/left/OptimizeToggle";
 import SettingsPanel from "./components/left/SettingsPanel";
 import SpreadsheetModal from "./components/left/SpreadsheetModal";
 import ConfirmResetModal from "./components/ConfirmResetModal";
+import FleetModal from "./components/FleetModal";
+import { vehiclesLabel } from "./lib/fleet";
 import MapView from "./components/center/MapView";
 import ItineraryPanel from "./components/right/ItineraryPanel";
 import { useAppStore } from "./store/useAppStore";
@@ -40,6 +42,9 @@ export default function App() {
   const tab = useAppStore((s) => s.tab);
   const setTab = useAppStore((s) => s.setTab);
   const openSettings = useAppStore((s) => s.openSettings);
+  const vehicles = useAppStore((s) => s.vehicles);
+  const fleetOpen = useAppStore((s) => s.fleetOpen);
+  const openFleet = useAppStore((s) => s.openFleet);
 
   useEffect(() => {
     void loadConfig();
@@ -59,6 +64,13 @@ export default function App() {
                 <span className="brand-name">Routrip</span>
                 <span className="brand-sub">Planejador de rotas de entrega</span>
               </div>
+              <button
+                className="settings-open fleet-open"
+                title="Trocar a quantidade de veículos"
+                onClick={openFleet}
+              >
+                {vehiclesLabel(vehicles ?? 1)}
+              </button>
               <button className="settings-open" onClick={openSettings}>
                 Configurações
                 <span className={config?.ors_key_set ? "status-dot" : "status-dot off"} />
@@ -95,6 +107,7 @@ export default function App() {
       {confirmReset && <ConfirmResetModal />}
       {spreadsheet && <SpreadsheetModal preview={spreadsheet} />}
       {reviewOpen && <OcrReviewModal />}
+      {(vehicles === null || fleetOpen) && <FleetModal />}
     </div>
   );
 }

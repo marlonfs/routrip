@@ -9,9 +9,19 @@ import {
   useMap,
   useMapEvents,
 } from "react-leaflet";
+import { vehicleColor } from "../../lib/fleet";
 import { INITIAL_CENTER, INITIAL_ZOOM, useAppStore } from "../../store/useAppStore";
 
 const ROUTE_COLOR = "#A51C30";
+
+/** Uma linha desenhada no mapa: a rota de um veículo, com ou sem traçado real. */
+interface DrawnRoute {
+  key: string;
+  color: string;
+  positions: [number, number][];
+  /** Sem traçado do ORS: liga os pontos em linha reta, tracejada. */
+  straight: boolean;
+}
 
 /** O painel flutuante cobre os 440px da esquerda (mais 16px de margem de cada
  * lado): o enquadramento da rota tem de desviar dele, senão as primeiras paradas
@@ -28,10 +38,11 @@ interface ContextMenuState {
   lng: number;
 }
 
-function pinIcon(content: string, kind: "origin" | "stop") {
+function pinIcon(content: string, kind: "origin" | "stop", color?: string) {
+  const style = color ? ` style="background:${color}"` : "";
   return L.divIcon({
     className: "",
-    html: `<div class="pin pin-${kind}">${content}</div>`,
+    html: `<div class="pin pin-${kind}"${style}>${content}</div>`,
     iconSize: [24, 24],
     iconAnchor: [12, 12],
   });
@@ -90,12 +101,18 @@ function FlyTo() {
 function FitRoute() {
   const map = useMap();
   const plan = useAppStore((s) => s.plan);
+  const fleet = useAppStore((s) => s.fleet);
 
   useEffect(() => {
     if (plan?.geometry && plan.geometry.length > 1) {
       map.fitBounds(L.latLngBounds(plan.geometry), FIT_PADDING);
     }
   }, [plan, map]);
+
+  useEffect(() => {
+    const pts = fleet?.routes.flatMap((r) => r.geometry ?? []) ?? [];
+    if (pts.length > 1) map.fitBounds(L.latLngBounds(pts), FIT_PADDING);
+  }, [fleet, map]);
   return null;
 }
 
@@ -103,6 +120,7 @@ export default function MapView() {
   const origin = useAppStore((s) => s.origin);
   const stops = useAppStore((s) => s.stops);
   const plan = useAppStore((s) => s.plan);
+  const fleet = useAppStore((s) => s.fleet);
   const moveOrigin = useAppStore((s) => s.moveOrigin);
   const moveStopPosition = useAppStore((s) => s.moveStopPosition);
   const addStopAt = useAppStore((s) => s.addStopAt);
@@ -110,18 +128,48 @@ export default function MapView() {
 
   const [menu, setMenu] = useState<ContextMenuState | null>(null);
 
-  const orderById = useMemo(() => {
-    const map = new Map<string, number>();
-    plan?.ordered_stops.forEach((ps) => map.set(ps.stop.id, ps.order));
+  // Número e cor de cada pino. Na frota, o número é a ordem dentro da rota do
+  // veículo e a cor diz qual veículo passa ali.
+  const pinById = useMemo(() => {
+    const map = new Map<string, { order: number; color?: string }>();
+    plan?.ordered_stops.forEach((ps) => map.set(ps.stop.id, { order: ps.order }));
+    fleet?.routes.forEach((r) =>
+      r.ordered_stops.forEach((ps) =>
+        map.set(ps.stop.id, { order: ps.order, color: vehicleColor(r.vehicle) }),
+      ),
+    );
     return map;
-  }, [plan]);
+  }, [plan, fleet]);
 
-  const fallbackLine = useMemo(() => {
-    if (!plan || plan.geometry) return null;
-    const pts: [number, number][] = plan.ordered_stops.map((ps) => [ps.stop.lat, ps.stop.lon]);
-    if (!origin) return null;
-    return [[origin.lat, origin.lon] as [number, number], ...pts, [origin.lat, origin.lon] as [number, number]];
-  }, [plan, origin]);
+  const routes = useMemo<DrawnRoute[]>(() => {
+    const drawn = (
+      key: string,
+      color: string,
+      geometry: [number, number][] | null,
+      stopsInOrder: { lat: number; lon: number }[],
+    ): DrawnRoute | null => {
+      if (geometry) return { key, color, positions: geometry, straight: false };
+      if (!origin) return null;
+      const home: [number, number] = [origin.lat, origin.lon];
+      const pts = stopsInOrder.map((p) => [p.lat, p.lon] as [number, number]);
+      return { key, color, positions: [home, ...pts, home], straight: true };
+    };
+    const out: (DrawnRoute | null)[] = [];
+    if (plan) {
+      out.push(drawn("plan", ROUTE_COLOR, plan.geometry, plan.ordered_stops.map((ps) => ps.stop)));
+    }
+    fleet?.routes.forEach((r) =>
+      out.push(
+        drawn(
+          `v${r.vehicle}`,
+          vehicleColor(r.vehicle),
+          r.geometry,
+          r.ordered_stops.map((ps) => ps.stop),
+        ),
+      ),
+    );
+    return out.filter((r): r is DrawnRoute => r !== null);
+  }, [plan, fleet, origin]);
 
   return (
     <>
@@ -158,7 +206,11 @@ export default function MapView() {
           <Marker
             key={s.id}
             position={[s.lat, s.lon]}
-            icon={pinIcon(String(orderById.get(s.id) ?? i + 1), "stop")}
+            icon={pinIcon(
+              String(pinById.get(s.id)?.order ?? i + 1),
+              "stop",
+              pinById.get(s.id)?.color,
+            )}
             draggable
             eventHandlers={{
               dragend: (e) => {
@@ -169,30 +221,31 @@ export default function MapView() {
           />
         ))}
 
-        {plan?.geometry && (
-          <>
-            <Polyline
-              positions={plan.geometry}
-              pathOptions={{ color: "#fff", weight: 9, opacity: 0.9, lineJoin: "round" }}
-            />
-            <Polyline
-              positions={plan.geometry}
-              pathOptions={{ color: ROUTE_COLOR, weight: 5, opacity: 0.85, lineJoin: "round" }}
-            />
-          </>
-        )}
-        {fallbackLine && (
-          <>
-            <Polyline
-              positions={fallbackLine}
-              pathOptions={{ color: "#fff", weight: 8, opacity: 0.9, lineJoin: "round" }}
-            />
-            <Polyline
-              positions={fallbackLine}
-              pathOptions={{ color: ROUTE_COLOR, weight: 4, opacity: 0.85, dashArray: "8 8" }}
-            />
-          </>
-        )}
+        {/* Contornos antes das linhas: onde duas rotas se sobrepõem (perto da
+            partida), o contorno de uma não pode apagar a cor da outra. */}
+        {routes.map((r) => (
+          <Polyline
+            key={`${r.key}-halo`}
+            positions={r.positions}
+            pathOptions={{
+              color: "#fff",
+              weight: r.straight ? 8 : 9,
+              opacity: 0.9,
+              lineJoin: "round",
+            }}
+          />
+        ))}
+        {routes.map((r) => (
+          <Polyline
+            key={r.key}
+            positions={r.positions}
+            pathOptions={
+              r.straight
+                ? { color: r.color, weight: 4, opacity: 0.85, dashArray: "8 8" }
+                : { color: r.color, weight: 5, opacity: 0.85, lineJoin: "round" }
+            }
+          />
+        ))}
       </MapContainer>
 
       {menu && (

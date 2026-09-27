@@ -216,6 +216,9 @@ class Stop(BaseModel):
     lon: float
 
 
+MAX_VEHICLES = 20
+
+
 class RouteSolveRequest(BaseModel):
     origin: Stop
     stops: list[Stop] = Field(min_length=1)
@@ -223,6 +226,7 @@ class RouteSolveRequest(BaseModel):
     departure_time: str = "08:00"
     stop_minutes: int = 10
     want_geometry: bool = True
+    vehicles: int = Field(1, ge=1, le=MAX_VEHICLES)
 
 
 class PlannedStop(BaseModel):
@@ -241,4 +245,30 @@ class RoutePlan(BaseModel):
     driving_duration_s: float
     geometry: list[list[float]] | None = None
     gmaps_urls: list[str]
+    warnings: list[str] = []
+
+
+class VehicleRoute(BaseModel):
+    """A rota de um veículo da frota: os mesmos campos de `RoutePlan`, sem os que
+    valem para a frota inteira (hora de saída e avisos)."""
+
+    vehicle: int
+    ordered_stops: list[PlannedStop]
+    return_eta: str
+    total_duration_s: float
+    total_distance_m: float
+    driving_duration_s: float
+    geometry: list[list[float]] | None = None
+    gmaps_urls: list[str]
+
+
+class FleetPlan(BaseModel):
+    routes: list[VehicleRoute]
+    departure_time: str
+    # Somas da frota: o que ela roda e dirige no total
+    total_distance_m: float
+    driving_duration_s: float
+    # O dia só acaba quando o último veículo volta
+    makespan_s: float
+    last_return_eta: str
     warnings: list[str] = []
